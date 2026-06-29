@@ -46,6 +46,35 @@
   }
 }
 
+/* Forced dark (overrides system) */
+:root[data-theme="dark"] {
+  --bg: #121120; --bg-grad-1: #1d1838; --bg-grad-2: #281a2e;
+  --surface: #201e30; --surface-2: #1a1828; --text: #f4f2fc; --text-soft: #aaa6c6;
+  --line: #302c46; --line-strong: #3b3654; --brand: #8b7cff; --brand-2: #a392ff; --accent: #ff7faf;
+  --shadow: 0 14px 36px rgba(0,0,0,.5); --shadow-sm: 0 4px 16px rgba(0,0,0,.42);
+}
+
+/* 🌸 Cute mode — pink, light, sweet */
+:root[data-theme="cute"] {
+  --bg: #fff2f8; --bg-grad-1: #ffe0ef; --bg-grad-2: #fff0dd;
+  --surface: #ffffff; --surface-2: #fff3f9;
+  --text: #5b2a45; --text-soft: #c07a9b;
+  --line: #ffd9ea; --line-strong: #ffc4dd;
+  --brand: #ff5fa2; --brand-2: #ff8cc0; --brand-ink: #ffffff; --accent: #ff8ad0;
+  --good: #ff7ab0; --warn: #ffb04b; --bad: #ff6f8f;
+  --radius: 26px; --radius-sm: 18px;
+  --shadow: 0 16px 40px rgba(255, 105, 170, 0.22);
+  --shadow-sm: 0 5px 18px rgba(255, 105, 170, 0.18);
+  --grad: linear-gradient(135deg, #ff6fb1, #ff9ad0 55%, #ffc18f);
+}
+:root[data-theme="cute"] body {
+  background-image: radial-gradient(130% 90% at 0% 0%, #ffe0ef 0%, transparent 55%),
+                    radial-gradient(130% 90% at 100% 100%, #fff0dd 0%, transparent 55%),
+                    radial-gradient(80% 60% at 50% 120%, #ffe6f3 0%, transparent 60%);
+}
+:root[data-theme="cute"] .hero h1 { letter-spacing: -0.01em; }
+:root[data-theme="cute"] .game-card { border-color: var(--line-strong); }
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { height: 100%; }
 body {
@@ -291,3 +320,17 @@ p { margin: 0 0 .8em; }
   display: flex; gap: 12px; align-items: center; box-shadow: var(--shadow-sm); animation: rise .3s ease; }
 .a2hs .x { margin-left: auto; color: var(--text-soft); background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 4px; }
 .a2hs b { font-weight: 800; }
+
+/* Logo mark */
+.logo { display: inline-flex; align-items: center; justify-content: center; }
+.logo svg { display: block; filter: drop-shadow(0 2px 4px rgba(108,92,231,.28)); }
+
+/* Confetti */
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 90; overflow: hidden; }
+.confetti i { position: absolute; top: -16px; width: 9px; height: 14px; border-radius: 2px; opacity: .95;
+  animation-name: confall; animation-timing-function: cubic-bezier(.3,.6,.5,1); animation-fill-mode: forwards; }
+@keyframes confall { to { transform: translateY(108vh) rotate(600deg); opacity: .15; } }
+@media (prefers-reduced-motion: reduce) { .confetti { display: none; } }
+
+/* Theme picker / generic icon-button group */
+.theme-fab { font-size: 1.1rem; }

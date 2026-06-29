@@ -2,7 +2,7 @@
 // the other hunts the lie. Roles swap. Co-op "lie detector" score.
 // Online (2 phones) or one phone (pass it).
 
-import { el, render, button, connectionPill, passDevice, gameHeader, meter, shuffle } from "../ui.js";
+import { el, render, button, connectionPill, passDevice, gameHeader, meter, shuffle, celebrate } from "../ui.js";
 
 const game = {
   id: "ttl",
@@ -73,6 +73,7 @@ function guessUI(renderInto, name, statements, onDone) {
 
 function revealScreen(statements, lieIndex, guessIndex, name) {
   const correct = guessIndex === lieIndex;
+  if (correct) celebrate();
   return el("div", { class: "screen" }, [
     el("div", { class: `verdict ${correct ? "match" : "nomatch"}` }, correct ? "🕵️ Lie detected!" : "😈 The lie got past you!"),
     el("div", { class: "stack", style: "margin-top:6px" }, statements.map((s, k) => {

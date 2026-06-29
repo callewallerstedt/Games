@@ -29,10 +29,23 @@ export function render(content) {
   window.scrollTo(0, 0);
 }
 
+// Inline logo mark — a heart-shaped chat bubble, matching the app icon.
+export function logoMark(size = 26) {
+  const span = el("span", { class: "logo", style: `width:${size}px;height:${size}px` });
+  span.innerHTML = `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">
+    <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="var(--brand)"/><stop offset="1" stop-color="var(--accent)"/>
+    </linearGradient></defs>
+    <path fill="url(#lg)" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+    <circle cx="8.5" cy="9" r="1.05" fill="#fff"/><circle cx="12" cy="9" r="1.05" fill="#fff"/><circle cx="15.5" cy="9" r="1.05" fill="#fff"/>
+  </svg>`;
+  return span;
+}
+
 export function topbar({ onBack, right } = {}) {
   return el("div", { class: "topbar" }, [
     onBack ? el("button", { class: "iconbtn", "aria-label": "Back", onClick: onBack }, "‹") : null,
-    el("div", { class: "brand" }, ["🎲", "Together"]),
+    el("div", { class: "brand" }, [logoMark(24), "Together"]),
     el("div", { class: "spacer" }),
     right || null,
   ]);
@@ -95,7 +108,13 @@ export function rulesModal(game) {
 }
 
 // Standard in-game header: back button + rules + (optional) connection status.
+// In online games the status pill is tappable to re-show the rejoin code.
 export function gameHeader(ctx, game, statusNode) {
+  if (statusNode && ctx && ctx.reconnectInfo) {
+    statusNode.style.cursor = "pointer";
+    statusNode.title = "Connection — tap to show rejoin code";
+    statusNode.onclick = ctx.reconnectInfo;
+  }
   const right = el("div", { style: "display:flex; gap:8px; align-items:center" }, [
     statusNode || null,
     el("button", { class: "iconbtn", "aria-label": "Rules", onClick: () => rulesModal(game) }, "?"),
@@ -165,6 +184,42 @@ export function iosInstallTip() {
   ]);
   return tip;
 }
+
+// ---------- Theme ----------
+export const THEMES = [
+  { value: "auto", label: "✨ Default" },
+  { value: "cute", label: "🌸 Cute" },
+  { value: "dark", label: "🌙 Dark" },
+];
+export const getTheme = () => localStorage.getItem("together_theme") || "auto";
+export function applyTheme(t) {
+  t = t || getTheme();
+  if (t === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", t);
+  try { localStorage.setItem("together_theme", t); } catch {}
+}
+// Theme picker sheet. onChange called after applying.
+export function themePicker(onChange) {
+  const seg = segmented(THEMES, getTheme(), (v) => { applyTheme(v); onChange && onChange(v); });
+  return modal("🎨 Theme", [el("p", { class: "muted" }, "Pick a vibe for the whole app."), seg.node]);
+}
+
+// ---------- Delight: confetti + haptics ----------
+export function haptic(pattern = 18) { try { navigator.vibrate && navigator.vibrate(pattern); } catch {} }
+export function confetti(n = 90) {
+  const colors = ["#6c5ce7", "#ff5e98", "#ffa84b", "#14b88a", "#4bd1ff", "#ffd166"];
+  const layer = el("div", { class: "confetti" });
+  for (let i = 0; i < n; i++) {
+    const p = el("i");
+    p.style.cssText = `left:${Math.random() * 100}%;background:${colors[i % colors.length]};` +
+      `animation-delay:${Math.random() * 0.25}s;animation-duration:${1 + Math.random() * 0.8}s;` +
+      `transform:rotate(${Math.random() * 360}deg)`;
+    layer.append(p);
+  }
+  document.body.append(layer);
+  setTimeout(() => layer.remove(), 2400);
+}
+export function celebrate() { confetti(); haptic([12, 30, 12]); }
 
 export function shuffle(arr) {
   const a = arr.slice();

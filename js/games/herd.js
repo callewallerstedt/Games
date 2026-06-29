@@ -3,7 +3,7 @@
 // Online = 2 players, simultaneous reveal + mind-meld streak.
 // Local = 2–8 players, pass-the-phone, majority scores, odd-one-out gets the Pink Cow 🐷.
 
-import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, shuffle } from "../ui.js";
+import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, shuffle, celebrate } from "../ui.js";
 import { HERD_QUESTIONS } from "../data/herd-questions.js";
 
 const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -114,6 +114,7 @@ function onlineGame(ctx) {
   }
 
   function showReveal(p) {
+    if (p.match) celebrate();
     const a1 = el("div", { class: "answer-card reveal-anim" }, [
       el("span", { class: "who" }, isHost ? "You" : session.partnerName),
       el("span", { class: "val" }, p.a1),
@@ -127,6 +128,12 @@ function onlineGame(ctx) {
     const next = button("Next question →", { big: true, onClick: () => {
       if (isHost) hostNewRound(); else session.send("herd_next");
     } });
+    // Host can manually count a near-miss (typos / phrasing) as a match.
+    const override = (!p.match && isHost) ? button("✅ Close enough — count it", { variant: "secondary", onClick: () => {
+      stats.matches++; stats.streak = (stats.streak || 0) + 1;
+      const np = { a1: p.a1, a2: p.a2, match: true, stats };
+      session.send("herd_override", np); showReveal(np);
+    } }) : null;
     screen(el("div", { class: "screen" }, [
       el("div", { class: "q-big" }, currentQ),
       el("div", { class: "stack" }, [a1, a2]),
@@ -136,13 +143,14 @@ function onlineGame(ctx) {
         scoreChip(p.stats.matches, "matched"),
         scoreChip(p.stats.rounds, "rounds"),
       ]),
-      el("div", { class: "footer-actions" }, next),
+      el("div", { class: "footer-actions" }, [override, next]),
     ]));
   }
 
   // ---- Wire messages ----
   session.on("herd_round", (m) => { currentQ = m.q; showAnswer(m.q); });
   session.on("herd_reveal", (m) => { stats = m.stats; showReveal(m); });
+  session.on("herd_override", (m) => { stats = m.stats; showReveal(m); });
   if (isHost) {
     session.on("herd_answer", (m) => { pending.a2 = m.text; hostTryReveal(); });
     session.on("herd_next", () => hostNewRound());
@@ -183,49 +191,52 @@ function localGame(ctx) {
   }
 
   function reveal(q, answers) {
-    // Group by normalized answer.
     const groups = {};
     answers.forEach((a, i) => { (groups[norm(a)] ||= []).push(i); });
-    const sizes = Object.values(groups).map((g) => g.length);
-    const maxSize = Math.max(...sizes);
+    const maxSize = Math.max(...Object.values(groups).map((g) => g.length));
     cows = names.map(() => false);
-    let pointsLine;
+    let matched2p = names.length === 2 && maxSize === 2;
+    let overridden = false;
     if (names.length === 2) {
-      const match = maxSize === 2;
-      if (match) { scores[0]++; scores[1]++; }
-      else { cows = [true, true]; }
-      pointsLine = el("div", { class: `verdict ${match ? "match" : "nomatch"}` },
-        match ? "🧠 You think alike! +1 each" : "🐮 No match — Pink Cow for both!");
+      if (matched2p) { scores[0]++; scores[1]++; celebrate(); }
+      else cows = [true, true];
     } else {
-      // Majority (largest group) scores; any unique answer gets a Pink Cow.
       Object.values(groups).forEach((g) => {
         if (g.length === maxSize && maxSize > 1) g.forEach((i) => scores[i]++);
         if (g.length === 1) g.forEach((i) => { cows[i] = true; });
       });
-      pointsLine = el("div", { class: "verdict match" }, "🐄 The herd scores!");
     }
 
-    const rows = answers.map((a, i) => el("div", { class: "answer-card reveal-anim" }, [
-      el("span", { class: "who" }, names[i] + (cows[i] ? " 🐷" : "")),
-      el("span", { class: "val" }, a),
-    ]));
-
-    const standings = names
-      .map((n, i) => ({ n, s: scores[i], cow: cows[i] }))
-      .sort((a, b) => b.s - a.s)
-      .map((p) => el("div", { class: "answer-card" }, [
-        el("span", { class: "who" }, p.n + (p.cow ? " 🐷" : "")),
-        el("span", { class: "val" }, String(p.s)),
+    function draw() {
+      const pointsLine = names.length === 2
+        ? el("div", { class: `verdict ${matched2p ? "match" : "nomatch"}` },
+            matched2p ? "🧠 You think alike! +1 each" : "🐮 No match — Pink Cow for both!")
+        : el("div", { class: "verdict match" }, "🐄 The herd scores!");
+      const rows = answers.map((a, i) => el("div", { class: "answer-card reveal-anim" }, [
+        el("span", { class: "who" }, names[i] + (cows[i] ? " 🐷" : "")),
+        el("span", { class: "val" }, a),
       ]));
-
-    screen(el("div", { class: "screen" }, [
-      el("div", { class: "q-big" }, q),
-      el("div", { class: "stack" }, rows),
-      pointsLine,
-      el("h3", { class: "center", style: "margin-top:16px" }, "Standings"),
-      el("div", { class: "stack" }, standings),
-      el("div", { class: "footer-actions" }, button("Next question →", { big: true, onClick: playRound })),
-    ]));
+      const standings = names.map((n, i) => ({ n, s: scores[i], cow: cows[i] }))
+        .sort((a, b) => b.s - a.s)
+        .map((p) => el("div", { class: "answer-card" }, [
+          el("span", { class: "who" }, p.n + (p.cow ? " 🐷" : "")),
+          el("span", { class: "val" }, String(p.s)),
+        ]));
+      const override = (names.length === 2 && !matched2p && !overridden)
+        ? button("✅ Close enough — count it", { variant: "secondary", onClick: () => {
+            scores[0]++; scores[1]++; cows = [false, false]; matched2p = true; overridden = true; celebrate(); draw();
+          } })
+        : null;
+      screen(el("div", { class: "screen" }, [
+        el("div", { class: "q-big" }, q),
+        el("div", { class: "stack" }, rows),
+        pointsLine,
+        el("h3", { class: "center", style: "margin-top:16px" }, "Standings"),
+        el("div", { class: "stack" }, standings),
+        el("div", { class: "footer-actions" }, [override, button("Next question →", { big: true, onClick: playRound })]),
+      ]));
+    }
+    draw();
   }
 
   playRound();

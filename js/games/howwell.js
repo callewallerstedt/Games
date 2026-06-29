@@ -3,7 +3,7 @@
 // answerer judges if the guess was right. Roles swap. Co-op "how well we know
 // each other" score. Online (2 phones) or one phone (pass it).
 
-import { el, render, button, connectionPill, passDevice, gameHeader, scoreChip, meter, shuffle } from "../ui.js";
+import { el, render, button, connectionPill, passDevice, gameHeader, scoreChip, meter, shuffle, celebrate } from "../ui.js";
 import { HOWWELL } from "../data/decks.js";
 
 const game = {
@@ -120,6 +120,7 @@ function online(ctx) {
   function applyResult(correct) { stats.rounds++; if (correct) stats.correct++; }
   function showResult(correct, st) {
     stats = st;
+    if (correct) celebrate();
     screen(el("div", { class: "screen" }, [
       el("div", { class: `verdict ${correct ? "match" : "nomatch"}`, style: "margin-top:30px" }, correct ? "✅ Nailed it!" : "❌ So close!"),
       scoreFooter(stats),
@@ -172,7 +173,7 @@ function local(ctx) {
     screen(body);
 
     function finish(correct) {
-      stats.rounds++; if (correct) stats.correct++;
+      stats.rounds++; if (correct) { stats.correct++; celebrate(); }
       screen(el("div", { class: "screen" }, [
         el("div", { class: `verdict ${correct ? "match" : "nomatch"}`, style: "margin-top:30px" }, correct ? "✅ Nailed it!" : "❌ So close!"),
         scoreFooter(stats),

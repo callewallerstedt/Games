@@ -2,7 +2,7 @@
 // Match = compatibility points; either way it sparks a fun debate.
 // Online = 2 phones (simultaneous reveal). Local = pass the phone.
 
-import { el, render, button, connectionPill, passDevice, gameHeader, scoreChip, meter, shuffle } from "../ui.js";
+import { el, render, button, connectionPill, passDevice, gameHeader, scoreChip, meter, shuffle, celebrate } from "../ui.js";
 import { WOULD_YOU_RATHER } from "../data/decks.js";
 
 const game = {
@@ -92,6 +92,7 @@ function online(ctx) {
     ]));
   }
   function showReveal(p) {
+    if (p.match) celebrate();
     const mine = isHost ? p.c1 : p.c2;
     const theirs = isHost ? p.c2 : p.c1;
     const tag = (which) => which === "a" ? "A" : "B";
@@ -151,7 +152,7 @@ function local(ctx) {
       });
     }
     const match = picks[0] === picks[1];
-    stats.rounds++; if (match) { stats.matches++; stats.streak++; } else stats.streak = 0;
+    stats.rounds++; if (match) { stats.matches++; stats.streak++; celebrate(); } else stats.streak = 0;
     const frac = stats.matches / stats.rounds;
     screen(el("div", { class: "screen" }, [
       el("div", { class: "kicker" }, "Would you rather…"),

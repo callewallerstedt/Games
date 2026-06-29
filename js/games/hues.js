@@ -3,7 +3,7 @@
 // colour on a spectrum. Score by how close. Roles swap. Co-op team score.
 // Works on two phones (secret colour stays on the cluer's phone) or one (pass it).
 
-import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip } from "../ui.js";
+import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, celebrate } from "../ui.js";
 
 const COLS = 12;
 const ROWS = 8;
@@ -136,6 +136,7 @@ function onlineGame(ctx) {
   }
 
   function showReveal(p) {
+    if (p.pts >= 4) celebrate();
     const next = button("Next round ↻", { big: true, onClick: () => {
       if (isHost) { round++; hostNewRound(); } else session.send("hues_next");
     } });
@@ -224,6 +225,7 @@ function localGame(ctx) {
 
     const pts = pointsFor(distance(target, guess));
     team.total += pts; team.best = Math.max(team.best, pts);
+    if (pts >= 4) celebrate();
     screen(el("div", { class: "screen" }, [
       el("div", { class: "center" }, [el("span", { class: "muted" }, "Clue was"), el("div", { class: "clue-tag", style: "margin:8px 0 14px" }, clue)]),
       grid({ target, guess, disabled: true }),

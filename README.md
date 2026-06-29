@@ -16,11 +16,18 @@ the game data then flows directly between the two phones.
 | 💌 **How Well Do You Know Me?** | Newlywed-style: one answers about themselves, the other guesses, then the answerer judges it. Co-op "how well you know each other" score. |
 | 🤥 **Two Truths & a Lie** | Write two truths and a lie about yourself; your partner hunts the lie. Swap roles. |
 | 💬 **Deep Dive** | A conversation card deck with levels — Cute → Deep → Spicy. No points, just real talk. |
+| 🕵️ **Impostor** | 3–10 players, one phone. Everyone answers the same question except one secret impostor with a different one. Discuss and vote who's the odd one out. |
 | 🐮 **Think Alike** | You both secretly answer the same simple question, then it reveals at the same time. Match = you think alike! (One phone supports 2–8 players with the classic Pink Cow 🐷.) |
 | 🎨 **Color Clue** | One person sees a secret colour and gives a 1–2 word clue; the other taps it on the spectrum. The closer the guess, the more points. Co-op — swap roles and beat your high score. |
 
 Installable as a home-screen app (PWA): on iPhone, open in Safari → Share → **Add to Home
 Screen** for a full-screen, offline-capable experience.
+
+**Themes:** tap 🎨 on the home screen to switch between Default, 🌸 Cute (pink), and 🌙 Dark.
+
+**Reconnecting (two phones):** the host's room stays open, so if a phone drops, just reopen
+the link or scan the QR again (tap the connection pill mid-game to re-show it) — you'll be
+dropped back into the current round.
 
 More games can be added easily — see below.
 

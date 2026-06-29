@@ -40,8 +40,9 @@ export function hostRoom() {
   });
 
   peer.on("connection", (c) => {
-    // Only accept the first guest; ignore extras.
-    if (conn && conn.open) { c.close(); return; }
+    // Accept (re)connections — replace any previous connection so a dropped or
+    // reopened guest can rejoin the same room.
+    if (conn && conn !== c) { try { conn.close(); } catch {} }
     conn = c;
     c.on("open", () => setStatus("connected"));
     c.on("data", (d) => bus.emit("data", d));

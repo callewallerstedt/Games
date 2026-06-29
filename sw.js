@@ -1,6 +1,6 @@
 // Simple offline-first service worker for the app shell.
 // Bump CACHE when files change so clients pick up the new version.
-const CACHE = "together-v2";
+const CACHE = "together-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -18,6 +18,7 @@ const ASSETS = [
   "./js/games/howwell.js",
   "./js/games/twotruths.js",
   "./js/games/deepdive.js",
+  "./js/games/impostor.js",
   "./js/data/herd-questions.js",
   "./js/data/decks.js",
   "./vendor/peerjs.min.js",

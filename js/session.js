@@ -1,7 +1,7 @@
 // A "session" is what a game talks to. It hides whether players are on one phone
 // (local) or two phones (online P2P), and carries player names + a typed message bus.
 
-export function onlineSession(transport, { isHost, myName, partnerName }) {
+export function onlineSession(transport, { isHost, myName, partnerName, joinUrl }) {
   const handlers = {};
   const statusHandlers = [];
   transport.onData((msg) => {
@@ -14,9 +14,12 @@ export function onlineSession(transport, { isHost, myName, partnerName }) {
     isHost,
     myName,
     partnerName,
+    joinUrl: joinUrl || null, // so we can re-show the rejoin code mid-game
     // players[0] is always the host, players[1] the guest — a stable shared order.
     players: isHost ? [myName, partnerName] : [partnerName, myName],
-    send: (t, payload = {}) => transport.send({ t, ...payload }),
+    // Remember the last message we sent so the host can replay the current
+    // screen to a guest who reconnects (generic resync).
+    send: (t, payload = {}) => { const msg = { t, ...payload }; transport._lastSent = msg; transport.send(msg); },
     on: (t, fn) => { (handlers[t] ||= []).push(fn); },
     onStatus: (fn) => statusHandlers.push(fn),
     transport,

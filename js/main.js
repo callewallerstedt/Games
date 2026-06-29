@@ -1,5 +1,5 @@
 // Router + home hub + lobby (mode choice, P2P host/guest handshake, local setup).
-import { el, render, topbar, button, connectionPill, toast, rulesModal, registerSW, iosInstallTip } from "./ui.js";
+import { el, render, topbar, button, connectionPill, toast, rulesModal, registerSW, iosInstallTip, applyTheme, themePicker, modal } from "./ui.js";
 import { GAMES, getGame } from "./games/registry.js";
 import { hostRoom, joinRoom } from "./net.js";
 import { onlineSession, localSession } from "./session.js";
@@ -34,6 +34,7 @@ function router() {
 window.addEventListener("hashchange", router);
 window.addEventListener("DOMContentLoaded", router);
 if (document.readyState !== "loading") router();
+applyTheme();
 registerSW();
 
 /* ---------------- Home hub ---------------- */
@@ -52,8 +53,9 @@ function hub() {
       el("div", { class: "chev" }, "›"),
     ]),
   );
+  const themeBtn = el("button", { class: "iconbtn theme-fab", "aria-label": "Theme", onClick: () => themePicker(() => hub()) }, "🎨");
   render([
-    topbar(),
+    topbar({ right: themeBtn }),
     el("div", { class: "hero" }, [
       el("h1", {}, "Play together"),
       el("div", { class: "tag" }, "Fun little games for two — on one phone, or join from across the room. 💜"),
@@ -104,12 +106,14 @@ function hostFlow(g) {
     transport.onStatus(status.set);
 
     transport.onData((msg) => {
-      if (!msg || started) return;
-      if (msg.t === "hello") {
-        partnerName = msg.name || "Partner";
-        transport.send({ t: "welcome", name: myName });
-        renderWaiting();
-      }
+      if (!msg || msg.t !== "hello") return;
+      partnerName = msg.name || "Partner";
+      transport.send({ t: "welcome", name: myName });
+      if (!started) { renderWaiting(); return; }
+      // A guest (re)joined mid-game — replay start + the current screen.
+      transport.send({ t: "start" });
+      if (transport._lastSent) transport.send(transport._lastSent);
+      toast(`${partnerName} reconnected ✓`);
     });
 
     const renderConnecting = () =>
@@ -142,7 +146,7 @@ function hostFlow(g) {
             onClick: () => {
               started = true;
               transport.send({ t: "start" });
-              setTimeout(() => startOnline(g, transport, { isHost: true, myName, partnerName }), 250);
+              setTimeout(() => startOnline(g, transport, { isHost: true, myName, partnerName, joinUrl }), 250);
             },
           })),
       ]);
@@ -186,7 +190,8 @@ function joinFlow(gameId, peerId) {
 
     transport.onStatus((s) => {
       status.set(s);
-      if (s === "connected" && !partnerName) transport.send({ t: "hello", name: myName });
+      // Re-introduce ourselves on every (re)connect so the host can resync us.
+      if (s === "connected") transport.send({ t: "hello", name: myName });
       if (s === "closed") {
         render([
           topbar({ onBack: home }),
@@ -202,7 +207,7 @@ function joinFlow(gameId, peerId) {
     transport.onData((msg) => {
       if (!msg || started) return;
       if (msg.t === "welcome") { partnerName = msg.name || "Host"; showStatus(`Connected to ${partnerName}. Waiting for them to start…`); }
-      if (msg.t === "start") { started = true; startOnline(g, transport, { isHost: false, myName, partnerName: partnerName || "Host" }); }
+      if (msg.t === "start") { started = true; startOnline(g, transport, { isHost: false, myName, partnerName: partnerName || "Host", joinUrl: location.href }); }
     });
 
     showStatus("Connecting to the host…");
@@ -211,7 +216,22 @@ function joinFlow(gameId, peerId) {
 
 function startOnline(g, transport, opts) {
   const session = onlineSession(transport, opts);
-  g.mount({ mode: "online", isHost: opts.isHost, session, players: session.players, exit: home });
+  const reconnectInfo = () => reconnectSheet(session);
+  g.mount({ mode: "online", isHost: opts.isHost, session, players: session.players, exit: home, reconnectInfo });
+}
+
+// Tap the connection pill mid-game to re-show the rejoin code / status.
+function reconnectSheet(session) {
+  const body = [];
+  if (session.joinUrl) {
+    body.push(el("p", { class: "muted center" }, "Dropped connection? Scan this again or reopen the link to rejoin — your game is still here."));
+    body.push(el("div", { class: "center" }, qrFor(session.joinUrl)));
+    body.push(el("div", { class: "code-chip", style: "margin-top:10px" }, session.joinUrl));
+    body.push(button("📋 Copy link", { variant: "secondary", onClick: () => copy(session.joinUrl) }));
+  } else {
+    body.push(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Trying to reconnect…"]));
+  }
+  modal("🔗 Connection", el("div", { class: "stack" }, body));
 }
 
 /* ---------------- Local: setup names ---------------- */

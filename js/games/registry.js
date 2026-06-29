@@ -6,10 +6,11 @@ import wyr from "./wouldyourather.js";
 import howwell from "./howwell.js";
 import twotruths from "./twotruths.js";
 import deepdive from "./deepdive.js";
+import impostor from "./impostor.js";
 import herd from "./herd.js";
 import hues from "./hues.js";
 
-export const GAMES = [wyr, howwell, twotruths, deepdive, herd, hues];
+export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues];
 
 export function getGame(id) {
   return GAMES.find((g) => g.id === id) || null;
