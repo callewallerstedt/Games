@@ -86,7 +86,8 @@ function hub() {
     ]),
     el("div", { class: "game-grid" }, cards),
     iosInstallTip(),
-    el("p", { class: "muted center", style: "margin-top:22px; font-size:.82rem" }, "Made for couples · more games coming ✨"),
+    el("p", { class: "muted center", style: "margin-top:22px; font-size:.82rem" },
+      `${GAMES.length} games · v${GAMES.length}-pack`),
   ]);
 }
 

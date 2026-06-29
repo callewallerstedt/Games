@@ -162,9 +162,26 @@ export function scoreChip(n, label) {
 
 // Register the service worker (offline + installable). Safe no-op if unsupported.
 export function registerSW() {
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
-  }
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").then((reg) => {
+      reg.update();
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", () => {
+          if (nw.state === "installed" && navigator.serviceWorker.controller) {
+            toast("Update ready — refresh the page ✨", 4000);
+          }
+        });
+      });
+    }).catch(() => {});
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (window.__swReloaded) return;
+      window.__swReloaded = true;
+      location.reload();
+    });
+  });
 }
 
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
