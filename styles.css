@@ -336,11 +336,15 @@ p { margin: 0 0 .8em; }
 .bs-cell.unknown { background: #b8d4f0; }
 .bs-cell.ship { background: #5a7a9a; }
 .bs-cell.preview { background: #8eb8e8; outline: 2px dashed var(--brand); }
+.bs-cell.preview-bad { background: #ffc9c9; outline: 2px dashed var(--bad); }
 .bs-cell.hit { background: #ff6b6b; }
 .bs-cell.miss { background: #e8eef5; }
 .bs-cell.sunk { background: #c0392b; }
 .bs-label { font-size: .78rem; font-weight: 700; color: var(--text-soft); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
 .bs-boards { display: grid; gap: 16px; }
+.bs-arrows { display: flex; justify-content: center; }
+.bs-arrows-mid { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.bs-arrows-row { display: flex; gap: 10px; }
 
 /* ---------- Liar's Dice ---------- */
 .dice-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 12px 0; }
@@ -362,24 +366,27 @@ p { margin: 0 0 .8em; }
 .letter-cell {
   aspect-ratio: 1; border-radius: 10px; border: 1.5px solid var(--line-strong); background: var(--surface-2);
   font-weight: 800; font-size: 1rem; cursor: pointer; font-family: inherit; color: var(--text);
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
-.letter-cell.on { background: var(--brand); color: #fff; border-color: var(--brand); transform: scale(1.05); }
+.letter-cell:active { transform: scale(.94); background: var(--brand); color: #fff; border-color: var(--brand); }
 
 /* ---------- Triangle Lines ---------- */
-.tri-wrap { position: relative; width: 100%; aspect-ratio: 1; max-width: 340px; margin: 0 auto; }
+.tri-wrap { position: relative; width: 100%; aspect-ratio: 1; max-width: 320px; margin: 0 auto; touch-action: manipulation; }
 .tri-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.tri-line { stroke-width: 2.5; stroke-linecap: round; }
+.tri-line { stroke-width: 3; stroke-linecap: round; }
 .tri-line.p0 { stroke: #6c5ce7; }
 .tri-line.p1 { stroke: #ff5e98; }
 .tri-line.p2 { stroke: #14b88a; }
 .tri-line.p3 { stroke: #f0a13b; }
-.tri-fill { fill: rgba(108, 92, 231, 0.12); stroke: none; }
-.tri-dots { position: absolute; inset: 0; }
+.tri-fill { fill: rgba(108, 92, 231, 0.15); stroke: none; }
+.tri-dots { position: absolute; inset: 0; touch-action: manipulation; }
 .tri-dot {
-  position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%;
-  border: 2px solid var(--brand); background: var(--surface); box-shadow: var(--shadow-sm); cursor: pointer;
+  position: absolute; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%;
+  border: 3px solid var(--brand); background: var(--surface); box-shadow: var(--shadow-sm);
+  cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
-.tri-dot.sel { background: var(--brand); transform: scale(1.15); z-index: 2; }
+.tri-dot.sel { background: var(--brand); border-color: var(--brand); transform: scale(1.12); z-index: 3; }
+.tri-dot.nbr { background: color-mix(in srgb, var(--brand) 18%, var(--surface)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 35%, transparent); z-index: 2; }
 
 /* ---------- Case Files ---------- */
 .crime-clue {

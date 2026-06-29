@@ -25,7 +25,7 @@ const game = {
     <p>Classic naval combat for two. Each player hides five ships on a 10×10 grid,
     then you take turns calling coordinates.</p>
     <ol>
-      <li><b>Deploy</b> — tap cells to place each ship. Use ↻ to rotate.</li>
+      <li><b>Deploy</b> — move your ship with the arrow buttons, ↻ to rotate, then tap <b>Place ship</b>.</li>
       <li><b>Battle</b> — tap the enemy grid to fire. 💥 = hit, 💦 = miss.</li>
       <li>Sink every enemy ship to win!</li>
     </ol>
@@ -93,6 +93,20 @@ function randomFleet() {
   return { board, fleet };
 }
 
+function previewCells(r, c, size, horiz) {
+  const cells = [];
+  for (let i = 0; i < size; i++) {
+    cells.push({ r: horiz ? r : r + i, c: horiz ? c + i : c });
+  }
+  return cells;
+}
+
+function previewValid(board, r, c, size, horiz) {
+  return previewCells(r, c, size, horiz).every(({ r: rr, c: cc }) =>
+    rr >= 0 && cc >= 0 && rr < SIZE && cc < SIZE && !board[rr][cc],
+  ) && previewCells(r, c, size, horiz).length === size;
+}
+
 function boardGrid(opts) {
   const g = el("div", { class: "bs-grid" });
   for (let r = 0; r < SIZE; r++) {
@@ -100,11 +114,12 @@ function boardGrid(opts) {
       const classes = ["bs-cell"];
       const val = opts.board?.[r]?.[c] ?? 0;
       const shot = opts.shots?.[r]?.[c];
+      const prev = opts.preview?.find((p) => p.r === r && p.c === c);
       if (opts.mode === "own") {
         if (val) classes.push("ship");
         if (shot === "hit") classes.push("hit");
         if (shot === "miss") classes.push("miss");
-        if (opts.preview && opts.preview.some((p) => p.r === r && p.c === c)) classes.push("preview");
+        if (prev) classes.push(opts.previewOk ? "preview" : "preview-bad");
       } else {
         if (shot === "hit") classes.push("hit");
         else if (shot === "miss") classes.push("miss");
@@ -126,33 +141,60 @@ function boardGrid(opts) {
 function placementScreen(ctx, statusEl, onDone) {
   let horiz = true;
   let shipIdx = 0;
+  let cursorR = 0;
+  let cursorC = 0;
   const board = emptyBoard();
   const fleet = [];
 
+  function move(dr, dc) {
+    cursorR = Math.max(0, Math.min(SIZE - 1, cursorR + dr));
+    cursorC = Math.max(0, Math.min(SIZE - 1, cursorC + dc));
+    draw();
+  }
+
   function draw(subtitle) {
     const ship = SHIPS[shipIdx];
+    const preview = ship ? previewCells(cursorR, cursorC, ship.size, horiz) : [];
+    const ok = ship && previewValid(board, cursorR, cursorC, ship.size, horiz);
+
+    const arrows = el("div", { class: "bs-arrows" }, [
+      el("div", { class: "bs-arrows-mid" }, [
+        el("button", { class: "btn round-btn secondary", type: "button", onClick: () => move(-1, 0) }, "↑"),
+        el("div", { class: "bs-arrows-row" }, [
+          el("button", { class: "btn round-btn secondary", type: "button", onClick: () => move(0, -1) }, "←"),
+          el("button", { class: "btn round-btn secondary", type: "button", onClick: () => move(0, 1) }, "→"),
+        ]),
+        el("button", { class: "btn round-btn secondary", type: "button", onClick: () => move(1, 0) }, "↓"),
+      ]),
+    ]);
+
     const body = el("div", { class: "card" }, [
       el("div", { class: "pill" }, subtitle || "Deploy your fleet"),
       ship
-        ? el("p", { class: "center muted" }, `Place your ${ship.name} (${ship.size} cells)`)
+        ? el("p", { class: "center muted" }, `Place ${ship.name} (${ship.size}) — ${horiz ? "horizontal ↔" : "vertical ↕"}`)
         : el("p", { class: "center verdict match" }, "Fleet ready!"),
       boardGrid({
         mode: "own",
         board,
-        onCell: ship ? (r, c) => {
-          if (canPlace(board, r, c, ship.size, horiz)) {
-            const cells = placeShip(board, r, c, ship.id, ship.size, horiz);
-            fleet.push({ ...ship, cells, hits: 0 });
-            shipIdx++;
-            draw(subtitle);
-          }
-        } : undefined,
+        preview,
+        previewOk: ok,
       }),
-      ship ? el("div", { class: "btn-row", style: "margin-top:12px" }, [
-        button("↻ Rotate", { variant: "secondary", onClick: () => { horiz = !horiz; draw(subtitle); } }),
-        button("🎲 Random", { variant: "secondary", onClick: () => {
-          const rolled = randomFleet();
-          onDone(rolled.board, rolled.fleet);
+      ship ? el("div", { class: "stack", style: "margin-top:12px" }, [
+        arrows,
+        el("div", { class: "btn-row" }, [
+          button("↻ Rotate", { variant: "secondary", onClick: () => { horiz = !horiz; draw(subtitle); } }),
+          button("🎲 Random", { variant: "secondary", onClick: () => {
+            const rolled = randomFleet();
+            onDone(rolled.board, rolled.fleet);
+          } }),
+        ]),
+        button("Place ship ✓", { big: true, disabled: !ok, onClick: () => {
+          const cells = placeShip(board, cursorR, cursorC, ship.id, ship.size, horiz);
+          fleet.push({ ...ship, cells, hits: 0 });
+          shipIdx++;
+          cursorR = 0;
+          cursorC = 0;
+          draw(subtitle);
         } }),
       ]) : el("div", { class: "footer-actions" }, button("Ready for battle →", { big: true, onClick: () => onDone(board, fleet) })),
     ]);

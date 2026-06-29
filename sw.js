@@ -1,5 +1,5 @@
 // Offline shell — network-first for code so deploys show up immediately.
-const CACHE = "together-v6";
+const CACHE = "together-v7";
 
 const PRECACHE = [
   "./",

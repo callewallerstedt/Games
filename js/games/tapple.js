@@ -15,19 +15,19 @@ const game = {
   rulesHTML: `
     <p>A category appears (e.g. <b>Animals</b>). Letters A–Z stay on the board.</p>
     <ol>
-      <li>On your turn, pick a letter and name something in the category that starts with it.</li>
-      <li>Tap the letter to lock it in — timer resets for the next player.</li>
+      <li>On your turn, <b>say out loud</b> something in the category for a letter.</li>
+      <li><b>Tap that letter</b> — it disappears and the next player's turn starts.</li>
       <li>Run out of time? You lose a life ☠️</li>
       <li>Three strikes and you're out. Last player standing wins the round!</li>
     </ol>
-    <p class="muted">Pick your timer speed before you start. No repeats — be quick!</p>`,
+    <p class="muted">No typing — just shout it and tap. Pick your timer speed before you start.</p>`,
   mount(ctx) { local(ctx); },
 };
 
 function local(ctx) {
   const names = ctx.players;
   let timerSec = 10;
-  let strikesMax = 3;
+  const strikesMax = 3;
   let themes = shuffle(TAPPLE_THEMES);
   let ti = 0;
   const scores = names.map(() => 0);
@@ -58,7 +58,6 @@ function local(ctx) {
     let turnIdx = 0;
     let timerId = null;
     let leftSec = timerSec;
-    let pickedLetter = null;
 
     function clearTimer() { if (timerId) { clearInterval(timerId); timerId = null; } }
 
@@ -74,7 +73,21 @@ function local(ctx) {
       } else {
         turnIdx = (turnIdx + 1) % alive.length;
       }
-      pickedLetter = null;
+      drawPlay();
+    }
+
+    function useLetter(L) {
+      if (!left.includes(L)) return;
+      clearTimer();
+      haptic(12);
+      left = left.filter((x) => x !== L);
+      const p = alive[turnIdx % alive.length];
+      if (left.length === 0) {
+        scores[p]++;
+        celebrate();
+        return endRound(p, true);
+      }
+      turnIdx = (turnIdx + 1) % alive.length;
       drawPlay();
     }
 
@@ -83,49 +96,17 @@ function local(ctx) {
       if (alive.length <= 1) return endRound(alive[0] ?? -1);
       const p = alive[turnIdx % alive.length];
       leftSec = timerSec;
-      pickedLetter = null;
 
       const timerBar = el("div", { class: "timer-bar" }, el("i", { style: "width:100%" }));
       const timerNum = el("div", { class: "timer-num" }, String(leftSec));
-      const input = el("input", { class: "field", style: "text-align:left", placeholder: "Type your answer…", maxlength: "40", disabled: true });
-      const confirm = button("Tap letter first ↑", { big: true, disabled: true });
 
       const letterGrid = el("div", { class: "letter-grid" });
-      function paintLetters() {
-        letterGrid.replaceChildren();
-        left.forEach((L) => {
-          letterGrid.append(el("button", {
-            class: `letter-cell ${pickedLetter === L ? "on" : ""}`,
-            onClick: () => {
-              pickedLetter = L;
-              input.disabled = false;
-              input.placeholder = `${L} is for…`;
-              confirm.disabled = false;
-              confirm.textContent = `Lock in "${L}" ✓`;
-              setTimeout(() => input.focus(), 30);
-              paintLetters();
-            },
-          }, L));
-        });
-      }
-      paintLetters();
-
-      confirm.onclick = () => {
-        if (!pickedLetter || !input.value.trim()) return;
-        left = left.filter((x) => x !== pickedLetter);
-        clearTimer();
-        haptic(12);
-        if (left.length === 0) {
-          scores[p]++;
-          celebrate();
-          return endRound(p, true);
-        }
-        turnIdx = (turnIdx + 1) % alive.length;
-        drawPlay();
-      };
-
-      input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !confirm.disabled && input.value.trim()) confirm.click();
+      left.forEach((L) => {
+        letterGrid.append(el("button", {
+          class: "letter-cell",
+          type: "button",
+          onClick: () => useLetter(L),
+        }, L));
       });
 
       timerId = setInterval(() => {
@@ -139,13 +120,11 @@ function local(ctx) {
         el("div", { class: "card" }, [
           el("div", { class: "kicker" }, "Category"),
           el("div", { class: "q-big" }, theme),
-          el("div", { class: "pill center", style: "margin:8px 0" }, `${names[p]}'s turn`),
+          el("div", { class: "pill center", style: "margin:8px 0" }, `${names[p]} — say it, then tap`),
           timerNum,
           timerBar,
           letterGrid,
-          input,
         ]),
-        el("div", { class: "footer-actions" }, confirm),
         el("p", { class: "muted center tiny" }, `${left.length} letters left · ${alive.length} players in`),
       ]));
     }

@@ -1,7 +1,7 @@
-// "Triangle Lines" — draw lines between dots; complete a triangle to go again.
-import { el, render, button, gameHeader, scoreChip, celebrate, haptic } from "../ui.js";
+// "Triangle Lines" — tap two nearby dots to draw a line; close a triangle, go again.
+import { el, render, button, gameHeader, scoreChip, haptic } from "../ui.js";
 
-const SIZE = 5; // 5x5 dots
+const SIZE = 4;
 
 const game = {
   id: "triangles",
@@ -16,11 +16,11 @@ const game = {
   rulesHTML: `
     <p>A grid of dots. On your turn, draw a line between two nearby dots.</p>
     <ol>
-      <li>Tap one dot, then a neighbor to claim that edge.</li>
-      <li>If you complete a triangle (3 edges), you <b>score it</b> and get another turn!</li>
-      <li>Most triangles when the board fills up wins.</li>
+      <li>Tap one dot (it highlights), then tap a <b>neighbor</b> to draw a line.</li>
+      <li>Complete a triangle → you score and <b>go again</b>!</li>
+      <li>Most triangles when lines run out wins.</li>
     </ol>
-    <p class="muted">Lines can go horizontal, vertical, or diagonal between adjacent dots.</p>`,
+    <p class="muted">Tap the highlighted dot again to cancel your pick.</p>`,
   mount(ctx) { local(ctx); },
 };
 
@@ -41,21 +41,17 @@ function neighbors(i) {
 }
 
 function edgeKey(a, b) { return a < b ? `${a}-${b}` : `${b}-${a}`; }
+function triangleKey(a, b, c) { return [a, b, c].sort((x, y) => x - y).join(","); }
 
-function triangleKey(a, b, c) {
-  return [a, b, c].sort((x, y) => x - y).join(",");
-}
-
-function findNewTriangles(edges, a, b, claimed) {
+function findNewTriangles(edgeKeys, a, b, claimed) {
+  const set = new Set(edgeKeys);
   const found = [];
   for (const c of neighbors(a)) {
     if (c === b) continue;
-    const k1 = edgeKey(a, c);
-    const k2 = edgeKey(b, c);
-    const k3 = edgeKey(a, b);
-    if (edges.has(k1) && edges.has(k2) && edges.has(k3)) {
+    const k1 = edgeKey(a, c), k2 = edgeKey(b, c), k3 = edgeKey(a, b);
+    if (set.has(k1) && set.has(k2) && set.has(k3)) {
       const tk = triangleKey(a, b, c);
-      if (!claimed.has(tk)) found.push([a, b, c]);
+      if (!claimed.has(tk)) found.push(tk);
     }
   }
   return found;
@@ -66,41 +62,50 @@ function local(ctx) {
   const n = names.length;
   let turn = 0;
   const scores = names.map(() => 0);
-  const edges = new Map(); // key -> player index
-  const claimed = new Set(); // triangle keys
+  const edges = new Map();
+  const claimed = new Set();
   let selected = null;
 
-  const statusEl = el("span", { class: "pill" }, `${names[n - 1]} vs …`);
-  const screen = (b) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, statusEl), b]));
+  const statusEl = el("span", { class: "pill" }, `${names[0]}'s turn`);
+  const hintEl = el("p", { class: "muted center tiny", style: "margin:0 0 10px" }, "Tap a dot to start");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "tri-svg");
+  svg.setAttribute("viewBox", "0 0 100 100");
+  const dotLayer = el("div", { class: "tri-dots" });
+  const wrap = el("div", { class: "tri-wrap" }, [svg, dotLayer]);
+  const scorebar = el("div", { class: "scorebar" });
 
-  function allEdgesCount() {
-    let max = 0;
+  const cell = 100 / (SIZE - 1);
+  const pos = (i) => { const { r, c } = rc(i); return { x: c * cell, y: r * cell }; };
+
+  const dots = [];
+  for (let i = 0; i < SIZE * SIZE; i++) {
+    const { r, c } = rc(i);
+    const btn = el("button", {
+      class: "tri-dot",
+      type: "button",
+      style: `left:${(c / (SIZE - 1)) * 100}%;top:${(r / (SIZE - 1)) * 100}%`,
+      "aria-label": `dot ${i + 1}`,
+    });
+    btn.addEventListener("click", (e) => { e.preventDefault(); onDot(i); });
+    dotLayer.append(btn);
+    dots.push(btn);
+  }
+
+  function totalEdges() {
+    let count = 0;
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
-        neighbors(idx(r, c)).forEach((j) => {
-          if (j > idx(r, c)) max++;
-        });
+        neighbors(idx(r, c)).forEach((j) => { if (j > idx(r, c)) count++; });
       }
     }
-    return max;
+    return count;
   }
-  const totalEdges = allEdgesCount();
+  const maxEdges = totalEdges();
 
-  function drawBoard() {
-    selected = null;
-    const edgeSet = new Set(edges.keys());
-    const wrap = el("div", { class: "tri-wrap" });
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("class", "tri-svg");
-    svg.setAttribute("viewBox", "0 0 100 100");
+  function paint() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    const cell = 100 / (SIZE - 1);
-    const pos = (i) => {
-      const { r, c } = rc(i);
-      return { x: c * cell, y: r * cell };
-    };
-
-    // Draw claimed triangles lightly
     claimed.forEach((tk) => {
       const [a, b, c] = tk.split(",").map(Number);
       const pa = pos(a), pb = pos(b), pc = pos(c);
@@ -122,78 +127,65 @@ function local(ctx) {
       svg.append(line);
     });
 
-    wrap.append(svg);
-
-    const dotLayer = el("div", { class: "tri-dots" });
-    for (let i = 0; i < SIZE * SIZE; i++) {
-      const { r, c } = rc(i);
-      dotLayer.append(el("button", {
-        class: `tri-dot ${selected === i ? "sel" : ""}`,
-        style: `left:${(c / (SIZE - 1)) * 100}%;top:${(r / (SIZE - 1)) * 100}%`,
-        "aria-label": `dot ${i + 1}`,
-        onClick: () => onDot(i),
-      }));
-    }
-    wrap.append(dotLayer);
+    dots.forEach((btn, i) => {
+      btn.className = "tri-dot";
+      if (selected === i) btn.classList.add("sel");
+      else if (selected != null && neighbors(selected).includes(i) && !edges.has(edgeKey(selected, i))) {
+        btn.classList.add("nbr");
+      }
+    });
 
     statusEl.textContent = `${names[turn]}'s turn`;
+    hintEl.textContent = selected == null
+      ? "Tap a dot"
+      : "Tap a glowing neighbor — or tap again to cancel";
 
-    screen(el("div", { class: "screen" }, [
-      el("div", { class: "card" }, [
-        el("p", { class: "muted center tiny" }, selected == null ? "Tap a dot, then a neighbor" : "Now tap a connected dot"),
-        wrap,
-      ]),
-      el("div", { class: "scorebar" }, names.map((nm, i) => scoreChip(scores[i], nm))),
-      el("div", { class: "footer-actions" }, button("Restart board", { variant: "ghost", onClick: reset })),
-    ]));
+    scorebar.replaceChildren(...names.map((nm, i) => scoreChip(scores[i], nm)));
   }
 
   function onDot(i) {
     if (selected == null) {
       selected = i;
-      drawBoard();
+      haptic(8);
+      paint();
       return;
     }
     if (selected === i) {
       selected = null;
-      drawBoard();
+      paint();
       return;
     }
     const a = selected, b = i;
     if (!neighbors(a).includes(b)) {
       selected = i;
-      drawBoard();
+      haptic(8);
+      paint();
       return;
     }
     const k = edgeKey(a, b);
     if (edges.has(k)) {
       selected = i;
-      drawBoard();
+      paint();
       return;
     }
 
     edges.set(k, turn);
-    const edgeSet = new Set(edges.keys());
-    const newTris = findNewTriangles(edgeSet, a, b, claimed);
-    newTris.forEach((t) => {
-      claimed.add(triangleKey(...t));
-      scores[turn]++;
-    });
+    const newTris = findNewTriangles([...edges.keys()], a, b, claimed);
+    newTris.forEach((tk) => { claimed.add(tk); scores[turn]++; });
 
     selected = null;
-    haptic(newTris.length ? [12, 20, 12] : 8);
-    if (newTris.length) celebrate();
+    haptic(newTris.length ? [10, 20, 10] : 8);
 
-    if (edges.size >= totalEdges) return gameOver();
-
+    if (edges.size >= maxEdges) return gameOver();
     if (newTris.length === 0) turn = (turn + 1) % n;
-    drawBoard();
+    paint();
   }
 
   function gameOver() {
     const best = Math.max(...scores);
-    const wins = scores.map((s, i) => s === best ? i : -1).filter((i) => i >= 0);
-    screen(el("div", { class: "screen" }, [
+    const wins = scores.map((s, i) => (s === best ? i : -1)).filter((i) => i >= 0);
+    render(el("div", { class: "screen" }, [
+      gameHeader(ctx, game, statusEl),
       el("div", { class: "card center" }, [
         el("div", { class: "verdict match" }, "Board complete!"),
         el("p", {}, wins.length > 1 ? "It's a tie!" : `${names[wins[0]]} wins with ${best} triangles!`),
@@ -208,10 +200,21 @@ function local(ctx) {
     claimed.clear();
     scores.fill(0);
     turn = 0;
-    drawBoard();
+    selected = null;
+    mountBoard();
   }
 
-  reset();
+  function mountBoard() {
+    paint();
+    render(el("div", { class: "screen" }, [
+      gameHeader(ctx, game, statusEl),
+      el("div", { class: "card" }, [hintEl, wrap]),
+      scorebar,
+      el("div", { class: "footer-actions" }, button("Restart board", { variant: "ghost", onClick: reset })),
+    ]));
+  }
+
+  mountBoard();
 }
 
 export default game;
