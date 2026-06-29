@@ -6,9 +6,8 @@ import herd from "./herd.js";
 import hues from "./hues.js";
 import battleship from "./battleship.js";
 import dice from "./dice.js";
-import sync from "./sync.js";
 
-export const GAMES = [herd, hues, battleship, dice, sync];
+export const GAMES = [herd, hues, battleship, dice];
 
 export function getGame(id) {
   return GAMES.find((g) => g.id === id) || null;

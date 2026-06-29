@@ -280,18 +280,6 @@ p { margin: 0 0 .8em; }
 .die.pick.on { background: var(--brand); color: #fff; border-color: var(--brand); transform: scale(1.08); }
 .dice-pick { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 10px 0; }
 
-/* ---------- Sync Clues ---------- */
-.secret-word {
-  font-size: 2rem; font-weight: 800; text-align: center; letter-spacing: -0.02em;
-  padding: 16px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--line);
-}
-.clue-card {
-  display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  padding: 12px 14px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--line);
-}
-.clue-card .who { font-weight: 700; color: var(--text-soft); font-size: .85rem; }
-.clue-card .val { font-size: 1.15rem; font-weight: 800; }
-.clue-card.cancelled { opacity: .45; text-decoration: line-through; }
 
 /* ---------- Misc ---------- */
 .divider { display: flex; align-items: center; gap: 12px; color: var(--text-soft); font-size: .85rem; margin: 6px 0; }
