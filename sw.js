@@ -1,6 +1,6 @@
 // Simple offline-first service worker for the app shell.
 // Bump CACHE when files change so clients pick up the new version.
-const CACHE = "together-v4";
+const CACHE = "together-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -17,6 +17,11 @@ const ASSETS = [
   "./js/games/hues.js",
   "./js/games/battleship.js",
   "./js/games/dice.js",
+  "./js/games/tapple.js",
+  "./js/games/guess.js",
+  "./js/games/truefalse.js",
+  "./js/games/triangles.js",
+  "./js/games/crime.js",
   "./js/games/wouldyourather.js",
   "./js/games/howwell.js",
   "./js/games/twotruths.js",
@@ -24,6 +29,10 @@ const ASSETS = [
   "./js/games/impostor.js",
   "./js/data/herd-questions.js",
   "./js/data/decks.js",
+  "./js/data/tapple-themes.js",
+  "./js/data/guess-prompts.js",
+  "./js/data/truefalse-facts.js",
+  "./js/data/crime-cases.js",
   "./vendor/peerjs.min.js",
   "./vendor/qrcode.min.js",
   "./vendor/jsqr.min.js",
@@ -46,9 +55,7 @@ self.addEventListener("fetch", (e) => {
   const { request } = e;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-  // Never cache the PeerJS signaling/WebSocket traffic.
   if (url.origin !== location.origin) return;
-  // Cache-first for our own assets, fall back to network and cache it.
   e.respondWith(
     caches.match(request).then((hit) =>
       hit ||

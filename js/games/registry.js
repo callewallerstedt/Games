@@ -11,8 +11,13 @@ import herd from "./herd.js";
 import hues from "./hues.js";
 import battleship from "./battleship.js";
 import dice from "./dice.js";
+import tapple from "./tapple.js";
+import guess from "./guess.js";
+import truefalse from "./truefalse.js";
+import triangles from "./triangles.js";
+import crime from "./crime.js";
 
-export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, battleship, dice];
+export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, battleship, dice, tapple, guess, truefalse, triangles, crime];
 
 export function getGame(id) {
   return GAMES.find((g) => g.id === id) || null;
