@@ -4,6 +4,7 @@ import { GAMES, getGame } from "./games/registry.js";
 import { hostRoom, joinRoom } from "./net.js";
 import { onlineSession, localSession } from "./session.js";
 import { qrFor } from "./qr.js";
+import { openScanner } from "./scan.js";
 
 let active = null; // current transport to tear down on navigation
 
@@ -39,6 +40,26 @@ registerSW();
 
 /* ---------------- Home hub ---------------- */
 function hub() {
+  const nameInput = el("input", {
+    class: "field",
+    placeholder: "Your name",
+    value: rememberedName(),
+    maxlength: "16",
+    enterkeyhint: "done",
+    style: "text-align:left",
+    oninput: (e) => saveName(e.target.value.trim()),
+    onchange: (e) => saveName(e.target.value.trim()),
+  });
+
+  const scanBtn = el("button", {
+    class: "iconbtn",
+    "aria-label": "Scan QR to join",
+    title: "Scan to join",
+    onClick: () => openScanner((gameId, peerId) => go(`#/join/${gameId}/${peerId}`)),
+  }, "📷");
+
+  const themeBtn = el("button", { class: "iconbtn theme-fab", "aria-label": "Theme", onClick: () => themePicker(() => hub()) }, "🎨");
+
   const cards = GAMES.map((g, i) =>
     el("button", { class: "game-card", style: `animation-delay:${i * 0.04}s`, onClick: () => go(`#/g/${g.id}`) }, [
       el("div", { class: "emoji", style: g.color ? `background:${g.color}` : "" }, g.emoji),
@@ -53,12 +74,15 @@ function hub() {
       el("div", { class: "chev" }, "›"),
     ]),
   );
-  const themeBtn = el("button", { class: "iconbtn theme-fab", "aria-label": "Theme", onClick: () => themePicker(() => hub()) }, "🎨");
   render([
-    topbar({ right: themeBtn }),
+    topbar({ right: el("div", { style: "display:flex; gap:8px" }, [scanBtn, themeBtn]) }),
     el("div", { class: "hero" }, [
       el("h1", {}, "Play together"),
       el("div", { class: "tag" }, "Fun little games for two — on one phone, or join from across the room. 💜"),
+    ]),
+    el("div", { class: "card stack", style: "margin-bottom:14px" }, [
+      el("p", { class: "muted", style: "margin:0 0 8px; font-size:.9rem" }, "Your name (saved on this device)"),
+      el("div", { class: "name-row" }, [el("span", { style: "width:28px;text-align:center" }, "👤"), nameInput]),
     ]),
     el("div", { class: "game-grid" }, cards),
     iosInstallTip(),

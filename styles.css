@@ -67,7 +67,7 @@
   --shadow-sm: 0 5px 18px rgba(255, 105, 170, 0.18);
   --grad: linear-gradient(135deg, #ff6fb1, #ff9ad0 55%, #ffc18f);
 }
-:root[data-theme="cute"] body {
+:root[data-theme="cute"] html {
   background-image: radial-gradient(130% 90% at 0% 0%, #ffe0ef 0%, transparent 55%),
                     radial-gradient(130% 90% at 100% 100%, #fff0dd 0%, transparent 55%),
                     radial-gradient(80% 60% at 50% 120%, #ffe6f3 0%, transparent 60%);
@@ -76,17 +76,21 @@
 :root[data-theme="cute"] .game-card { border-color: var(--line-strong); }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html { height: 100%; }
+html {
+  height: 100%;
+  background-color: var(--bg);
+  background-image: radial-gradient(130% 90% at 0% 0%, var(--bg-grad-1) 0%, transparent 55%),
+                    radial-gradient(130% 90% at 100% 100%, var(--bg-grad-2) 0%, transparent 55%);
+  background-attachment: fixed;
+}
 body {
   margin: 0;
   min-height: 100svh;
   min-height: 100dvh;
+  min-height: -webkit-fill-available;
   font-family: var(--font);
   color: var(--text);
-  background: var(--bg);
-  background-image: radial-gradient(130% 90% at 0% 0%, var(--bg-grad-1) 0%, transparent 55%),
-                    radial-gradient(130% 90% at 100% 100%, var(--bg-grad-2) 0%, transparent 55%);
-  background-attachment: fixed;
+  background: transparent;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   line-height: 1.45;
@@ -97,10 +101,11 @@ body {
   margin: 0 auto;
   min-height: 100svh;
   min-height: 100dvh;
+  min-height: -webkit-fill-available;
   display: flex;
   flex-direction: column;
-  padding: calc(env(safe-area-inset-top) + 14px) max(16px, env(safe-area-inset-left))
-           calc(env(safe-area-inset-bottom) + 18px) max(16px, env(safe-area-inset-right));
+  padding: calc(env(safe-area-inset-top) + 14px) max(16px, env(safe-area-inset-right))
+           calc(env(safe-area-inset-bottom) + 18px) max(16px, env(safe-area-inset-left));
 }
 
 ::selection { background: color-mix(in srgb, var(--brand) 28%, transparent); }
@@ -212,7 +217,9 @@ p { margin: 0 0 .8em; }
 /* ---------- Pass-the-phone overlay ---------- */
 .pass {
   position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; text-align: center;
-  background: var(--grad); color: #fff; padding: 28px max(24px, env(safe-area-inset-left)); animation: fade .2s ease;
+  background: var(--grad); color: #fff;
+  padding: max(28px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-bottom));
+  animation: fade .2s ease;
 }
 .pass .hand { font-size: 4rem; margin-bottom: 6px; animation: wave 1.4s ease-in-out infinite; }
 .pass .who { font-size: 2.3rem; font-weight: 800; margin: 6px 0; }
@@ -222,7 +229,11 @@ p { margin: 0 0 .8em; }
 @keyframes fade { from { opacity: 0; } }
 
 /* ---------- Modal (bottom sheet) ---------- */
-.modal-bg { position: fixed; inset: 0; z-index: 60; background: rgba(18,14,38,.5); display: grid; place-items: end center; animation: fade .2s ease; }
+.modal-bg {
+  position: fixed; inset: 0; z-index: 60; background: rgba(18,14,38,.5);
+  display: grid; place-items: end center; padding-top: env(safe-area-inset-top);
+  animation: fade .2s ease;
+}
 .modal {
   background: var(--surface); width: 100%; max-width: var(--maxw); border-radius: 26px 26px 0 0;
   padding: 20px 20px calc(24px + env(safe-area-inset-bottom)); max-height: 86dvh; overflow: auto;
@@ -304,6 +315,45 @@ p { margin: 0 0 .8em; }
 .deck-card .prompt { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.25; }
 .deck-card .turn { margin-top: 16px; font-size: .95rem; opacity: .9; font-weight: 600; }
 @keyframes cardflip { from { transform: rotateX(28deg) translateY(10px); opacity: 0; } }
+
+/* ---------- QR scanner ---------- */
+.scan-modal { padding-top: max(22px, env(safe-area-inset-top)); }
+.scan-frame {
+  border-radius: 18px; overflow: hidden; border: 3px solid var(--brand);
+  box-shadow: 0 0 0 4px rgba(108, 92, 231, 0.15);
+}
+
+/* ---------- Battleship ---------- */
+.bs-grid {
+  display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px;
+  touch-action: manipulation; max-width: 100%;
+}
+.bs-cell {
+  aspect-ratio: 1; border-radius: 4px; border: 1px solid rgba(0,0,0,.08);
+  background: #d4e8ff; font-size: .65rem; cursor: pointer; padding: 0;
+  display: grid; place-items: center;
+}
+.bs-cell.unknown { background: #b8d4f0; }
+.bs-cell.ship { background: #5a7a9a; }
+.bs-cell.preview { background: #8eb8e8; outline: 2px dashed var(--brand); }
+.bs-cell.hit { background: #ff6b6b; }
+.bs-cell.miss { background: #e8eef5; }
+.bs-cell.sunk { background: #c0392b; }
+.bs-label { font-size: .78rem; font-weight: 700; color: var(--text-soft); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.bs-boards { display: grid; gap: 16px; }
+
+/* ---------- Liar's Dice ---------- */
+.dice-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 12px 0; }
+.die {
+  width: 44px; height: 44px; border-radius: 10px; background: var(--surface-2);
+  border: 2px solid var(--line); display: grid; place-items: center;
+  font-size: 1.2rem; font-weight: 800; box-shadow: var(--shadow-sm);
+}
+.die.hidden { background: var(--brand); color: #fff; border-color: var(--brand); }
+.die.pick { cursor: pointer; }
+.die.pick.on { background: var(--brand); color: #fff; border-color: var(--brand); transform: scale(1.08); }
+.dice-pick { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 10px 0; }
+
 
 /* ---------- Misc ---------- */
 .divider { display: flex; align-items: center; gap: 12px; color: var(--text-soft); font-size: .82rem; margin: 8px 0; }
