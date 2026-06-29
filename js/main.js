@@ -4,6 +4,7 @@ import { GAMES, getGame } from "./games/registry.js";
 import { hostRoom, joinRoom } from "./net.js";
 import { onlineSession, localSession } from "./session.js";
 import { qrFor } from "./qr.js";
+import { openScanner } from "./scan.js";
 
 let active = null; // current transport to tear down on navigation
 
@@ -37,6 +38,24 @@ if (document.readyState !== "loading") router();
 
 /* ---------------- Home hub ---------------- */
 function hub() {
+  const nameInput = el("input", {
+    class: "field",
+    placeholder: "Your name",
+    value: rememberedName(),
+    maxlength: "16",
+    enterkeyhint: "done",
+    style: "text-align:left",
+    oninput: (e) => saveName(e.target.value.trim()),
+    onchange: (e) => saveName(e.target.value.trim()),
+  });
+
+  const scanBtn = el("button", {
+    class: "iconbtn",
+    "aria-label": "Scan QR to join",
+    title: "Scan to join",
+    onClick: () => openScanner((gameId, peerId) => go(`#/join/${gameId}/${peerId}`)),
+  }, "📷");
+
   const cards = GAMES.map((g) =>
     el("button", { class: "game-card", onClick: () => go(`#/g/${g.id}`) }, [
       el("div", { class: "emoji" }, g.emoji),
@@ -49,13 +68,16 @@ function hub() {
     ]),
   );
   render([
-    topbar(),
+    topbar({ right: scanBtn }),
     el("div", { class: "hero" }, [
       el("h1", {}, "Play together"),
-      el("div", { class: "tag" }, "Quick, silly games for two — on one phone, or join from across the room."),
+      el("div", { class: "tag" }, "Party games for 2–6 — one phone or join from across the room."),
+    ]),
+    el("div", { class: "card stack", style: "margin-bottom:14px" }, [
+      el("p", { class: "muted", style: "margin:0 0 8px; font-size:.9rem" }, "Your name (saved on this device)"),
+      el("div", { class: "name-row" }, [el("span", { style: "width:28px;text-align:center" }, "👤"), nameInput]),
     ]),
     el("div", { class: "game-grid" }, cards),
-    el("p", { class: "muted center", style: "margin-top:24px; font-size:.82rem" }, "More games coming soon ✨"),
   ]);
 }
 

@@ -40,23 +40,29 @@
 }
 
 * { box-sizing: border-box; }
+html {
+  height: 100%;
+  background-color: var(--bg);
+  background-image: radial-gradient(120% 80% at 0% 0%, var(--bg-grad-1) 0%, transparent 60%),
+                    radial-gradient(120% 80% at 100% 100%, var(--bg-grad-2) 0%, transparent 60%);
+  background-attachment: fixed;
+}
 html, body { margin: 0; padding: 0; }
 body {
   font-family: var(--font);
   color: var(--text);
-  background: var(--bg);
-  background-image: radial-gradient(120% 80% at 0% 0%, var(--bg-grad-1) 0%, transparent 60%),
-                    radial-gradient(120% 80% at 100% 100%, var(--bg-grad-2) 0%, transparent 60%);
-  background-attachment: fixed;
+  background: transparent;
   -webkit-font-smoothing: antialiased;
   min-height: 100dvh;
+  min-height: -webkit-fill-available;
   line-height: 1.45;
 }
 #app {
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: max(16px, env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   min-height: 100dvh;
+  min-height: -webkit-fill-available;
   display: flex;
   flex-direction: column;
 }
@@ -165,7 +171,8 @@ p { margin: 0 0 .8em; }
 /* ---------- Pass-the-phone overlay ---------- */
 .pass {
   position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; text-align: center;
-  background: linear-gradient(160deg, var(--brand), var(--accent)); color: #fff; padding: 24px;
+  background: linear-gradient(160deg, var(--brand), var(--accent)); color: #fff;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
   animation: fade .2s ease;
 }
 .pass .who { font-size: 2.4rem; font-weight: 800; margin: 8px 0; }
@@ -177,7 +184,9 @@ p { margin: 0 0 .8em; }
 /* ---------- Modal ---------- */
 .modal-bg {
   position: fixed; inset: 0; z-index: 60; background: rgba(20,16,40,.5);
-  display: grid; place-items: end center; padding: 0; animation: fade .2s ease;
+  display: grid; place-items: end center; padding: 0;
+  padding-top: env(safe-area-inset-top);
+  animation: fade .2s ease;
 }
 .modal {
   background: var(--surface); width: 100%; max-width: var(--maxw); border-radius: 24px 24px 0 0;
@@ -232,6 +241,57 @@ p { margin: 0 0 .8em; }
   background: var(--surface-2); border-radius: 14px; border: 1px solid var(--line); letter-spacing: -0.02em;
 }
 .swatch { width: 100%; height: 64px; border-radius: 14px; border: 1px solid var(--line); }
+
+/* ---------- QR scanner ---------- */
+.scan-modal { padding-top: max(22px, env(safe-area-inset-top)); }
+.scan-frame {
+  border-radius: 18px; overflow: hidden; border: 3px solid var(--brand);
+  box-shadow: 0 0 0 4px rgba(108, 92, 231, 0.15);
+}
+
+/* ---------- Battleship ---------- */
+.bs-grid {
+  display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px;
+  touch-action: manipulation; max-width: 100%;
+}
+.bs-cell {
+  aspect-ratio: 1; border-radius: 4px; border: 1px solid rgba(0,0,0,.08);
+  background: #d4e8ff; font-size: .65rem; cursor: pointer; padding: 0;
+  display: grid; place-items: center;
+}
+.bs-cell.unknown { background: #b8d4f0; }
+.bs-cell.ship { background: #5a7a9a; }
+.bs-cell.preview { background: #8eb8e8; outline: 2px dashed var(--brand); }
+.bs-cell.hit { background: #ff6b6b; }
+.bs-cell.miss { background: #e8eef5; }
+.bs-cell.sunk { background: #c0392b; }
+.bs-label { font-size: .78rem; font-weight: 700; color: var(--text-soft); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.bs-boards { display: grid; gap: 16px; }
+
+/* ---------- Liar's Dice ---------- */
+.dice-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 12px 0; }
+.die {
+  width: 44px; height: 44px; border-radius: 10px; background: var(--surface-2);
+  border: 2px solid var(--line); display: grid; place-items: center;
+  font-size: 1.2rem; font-weight: 800; box-shadow: var(--shadow-sm);
+}
+.die.hidden { background: var(--brand); color: #fff; border-color: var(--brand); }
+.die.pick { cursor: pointer; }
+.die.pick.on { background: var(--brand); color: #fff; border-color: var(--brand); transform: scale(1.08); }
+.dice-pick { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 10px 0; }
+
+/* ---------- Sync Clues ---------- */
+.secret-word {
+  font-size: 2rem; font-weight: 800; text-align: center; letter-spacing: -0.02em;
+  padding: 16px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--line);
+}
+.clue-card {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 12px 14px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--line);
+}
+.clue-card .who { font-weight: 700; color: var(--text-soft); font-size: .85rem; }
+.clue-card .val { font-size: 1.15rem; font-weight: 800; }
+.clue-card.cancelled { opacity: .45; text-decoration: line-through; }
 
 /* ---------- Misc ---------- */
 .divider { display: flex; align-items: center; gap: 12px; color: var(--text-soft); font-size: .85rem; margin: 6px 0; }
