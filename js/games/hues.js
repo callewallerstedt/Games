@@ -3,7 +3,7 @@
 // colour on a spectrum. Score by how close. Roles swap. Co-op team score.
 // Works on two phones (secret colour stays on the cluer's phone) or one (pass it).
 
-import { el, render, topbar, button, pill, connectionPill, passDevice, rulesModal, scoreChip } from "../ui.js";
+import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip } from "../ui.js";
 
 const COLS = 12;
 const ROWS = 8;
@@ -19,6 +19,7 @@ const game = {
   id: "hues",
   title: "Color Clue",
   emoji: "🎨",
+  color: "linear-gradient(135deg,#ff6b9d,#ffa84b 55%,#4bd1ff)",
   blurb: "Clue a secret colour in 1–2 words — can they find it?",
   minPlayers: 2,
   maxPlayers: 2,
@@ -41,13 +42,7 @@ const game = {
   },
 };
 
-function header(ctx, statusEl) {
-  const right = el("div", { style: "display:flex; gap:8px; align-items:center" }, [
-    statusEl || null,
-    el("button", { class: "iconbtn", "aria-label": "Rules", onClick: () => rulesModal(game) }, "?"),
-  ]);
-  return topbar({ onBack: ctx.exit, right });
-}
+const header = (ctx, statusEl) => gameHeader(ctx, game, statusEl);
 
 // Build the colour spectrum. opts: { onPick, pick, target, guess, disabled }
 function grid(opts = {}) {

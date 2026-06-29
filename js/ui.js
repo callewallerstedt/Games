@@ -94,6 +94,33 @@ export function rulesModal(game) {
   return modal(`${game.emoji} ${game.title} — how to play`, el("div", { html: game.rulesHTML }));
 }
 
+// Standard in-game header: back button + rules + (optional) connection status.
+export function gameHeader(ctx, game, statusNode) {
+  const right = el("div", { style: "display:flex; gap:8px; align-items:center" }, [
+    statusNode || null,
+    el("button", { class: "iconbtn", "aria-label": "Rules", onClick: () => rulesModal(game) }, "?"),
+  ]);
+  return topbar({ onBack: ctx.exit, right });
+}
+
+// Segmented control. options: [{value,label}]. Returns { node, get() }.
+export function segmented(options, initial, onChange) {
+  let value = initial;
+  const wrap = el("div", { class: "seg" });
+  const buttons = options.map((o) =>
+    el("button", { class: o.value === value ? "on" : "", onClick: () => {
+      value = o.value; buttons.forEach((b, i) => b.classList.toggle("on", options[i].value === value));
+      onChange && onChange(value);
+    } }, o.label));
+  buttons.forEach((b) => wrap.append(b));
+  return { node: wrap, get: () => value };
+}
+
+// A compatibility meter bar (0..1).
+export function meter(frac) {
+  return el("div", { class: "meter" }, el("i", { style: `width:${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%` }));
+}
+
 // "Hand the phone to <name>" overlay. Resolves when they tap Ready.
 export function passDevice(name, subtitle) {
   return new Promise((resolve) => {
@@ -112,6 +139,31 @@ export function passDevice(name, subtitle) {
 
 export function scoreChip(n, label) {
   return el("div", { class: "score-chip" }, [el("span", { class: "n" }, String(n)), el("span", { class: "l" }, label)]);
+}
+
+// Register the service worker (offline + installable). Safe no-op if unsupported.
+export function registerSW() {
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
+}
+
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = () => window.navigator.standalone === true ||
+  window.matchMedia("(display-mode: standalone)").matches;
+
+// One-time hint for iOS Safari users to add the app to their home screen.
+export function iosInstallTip() {
+  if (!isIOS() || isStandalone() || localStorage.getItem("a2hs_dismissed")) return null;
+  const tip = el("div", { class: "a2hs" }, [
+    el("div", { style: "font-size:1.5rem" }, "📲"),
+    el("div", {}, [
+      el("div", {}, [el("b", {}, "Add to Home Screen"), " for full-screen play"]),
+      el("div", { class: "muted tiny" }, "Tap Share ⬆️ then “Add to Home Screen”."),
+    ]),
+    el("button", { class: "x", "aria-label": "Dismiss", onClick: () => { tip.remove(); try { localStorage.setItem("a2hs_dismissed", "1"); } catch {} } }, "✕"),
+  ]);
+  return tip;
 }
 
 export function shuffle(arr) {

@@ -1,5 +1,5 @@
 // Router + home hub + lobby (mode choice, P2P host/guest handshake, local setup).
-import { el, render, topbar, button, connectionPill, toast, rulesModal } from "./ui.js";
+import { el, render, topbar, button, connectionPill, toast, rulesModal, registerSW, iosInstallTip } from "./ui.js";
 import { GAMES, getGame } from "./games/registry.js";
 import { hostRoom, joinRoom } from "./net.js";
 import { onlineSession, localSession } from "./session.js";
@@ -34,16 +34,20 @@ function router() {
 window.addEventListener("hashchange", router);
 window.addEventListener("DOMContentLoaded", router);
 if (document.readyState !== "loading") router();
+registerSW();
 
 /* ---------------- Home hub ---------------- */
 function hub() {
-  const cards = GAMES.map((g) =>
-    el("button", { class: "game-card", onClick: () => go(`#/g/${g.id}`) }, [
-      el("div", { class: "emoji" }, g.emoji),
+  const cards = GAMES.map((g, i) =>
+    el("button", { class: "game-card", style: `animation-delay:${i * 0.04}s`, onClick: () => go(`#/g/${g.id}`) }, [
+      el("div", { class: "emoji", style: g.color ? `background:${g.color}` : "" }, g.emoji),
       el("div", { class: "body" }, [
         el("div", { class: "title" }, g.title),
         el("div", { class: "blurb" }, g.blurb),
-        el("div", { class: "meta" }, `👥 ${g.minPlayers === g.maxPlayers ? g.minPlayers : `${g.minPlayers}–${g.maxPlayers}`} · ⏱ ~${g.estMinutes} min`),
+        el("div", { class: "meta" }, [
+          el("span", {}, `👥 ${g.minPlayers === g.maxPlayers ? g.minPlayers : `${g.minPlayers}–${g.maxPlayers}`}`),
+          el("span", {}, `⏱ ~${g.estMinutes} min`),
+        ]),
       ]),
       el("div", { class: "chev" }, "›"),
     ]),
@@ -52,10 +56,11 @@ function hub() {
     topbar(),
     el("div", { class: "hero" }, [
       el("h1", {}, "Play together"),
-      el("div", { class: "tag" }, "Quick, silly games for two — on one phone, or join from across the room."),
+      el("div", { class: "tag" }, "Fun little games for two — on one phone, or join from across the room. 💜"),
     ]),
     el("div", { class: "game-grid" }, cards),
-    el("p", { class: "muted center", style: "margin-top:24px; font-size:.82rem" }, "More games coming soon ✨"),
+    iosInstallTip(),
+    el("p", { class: "muted center", style: "margin-top:22px; font-size:.82rem" }, "Made for couples · more games coming ✨"),
   ]);
 }
 

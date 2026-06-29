@@ -3,7 +3,7 @@
 // Online = 2 players, simultaneous reveal + mind-meld streak.
 // Local = 2–8 players, pass-the-phone, majority scores, odd-one-out gets the Pink Cow 🐷.
 
-import { el, render, topbar, button, pill, connectionPill, passDevice, rulesModal, scoreChip, shuffle } from "../ui.js";
+import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, shuffle } from "../ui.js";
 import { HERD_QUESTIONS } from "../data/herd-questions.js";
 
 const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -12,6 +12,7 @@ const game = {
   id: "herd",
   title: "Think Alike",
   emoji: "🐮",
+  color: "linear-gradient(135deg,#6c5ce7,#9d8bff)",
   blurb: "Answer the same question — do your brains match?",
   minPlayers: 2,
   maxPlayers: 8,
@@ -40,13 +41,7 @@ const game = {
   },
 };
 
-function header(ctx, statusEl) {
-  const right = el("div", { style: "display:flex; gap:8px; align-items:center" }, [
-    statusEl || null,
-    el("button", { class: "iconbtn", "aria-label": "Rules", onClick: () => rulesModal(game) }, "?"),
-  ]);
-  return topbar({ onBack: ctx.exit, right });
-}
+const header = (ctx, statusEl) => gameHeader(ctx, game, statusEl);
 
 function answerInput(onDone, placeholder = "Your answer…") {
   const input = el("input", { class: "field", type: "text", placeholder, autocomplete: "off",

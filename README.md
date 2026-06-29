@@ -12,8 +12,15 @@ the game data then flows directly between the two phones.
 
 | Game | What it is |
 | --- | --- |
+| 🤔 **Would You Rather** | You both tap A or B at the same time, then it reveals together. Match = compatibility points; differ = fun debate. |
+| 💌 **How Well Do You Know Me?** | Newlywed-style: one answers about themselves, the other guesses, then the answerer judges it. Co-op "how well you know each other" score. |
+| 🤥 **Two Truths & a Lie** | Write two truths and a lie about yourself; your partner hunts the lie. Swap roles. |
+| 💬 **Deep Dive** | A conversation card deck with levels — Cute → Deep → Spicy. No points, just real talk. |
 | 🐮 **Think Alike** | You both secretly answer the same simple question, then it reveals at the same time. Match = you think alike! (One phone supports 2–8 players with the classic Pink Cow 🐷.) |
 | 🎨 **Color Clue** | One person sees a secret colour and gives a 1–2 word clue; the other taps it on the spectrum. The closer the guess, the more points. Co-op — swap roles and beat your high score. |
+
+Installable as a home-screen app (PWA): on iPhone, open in Safari → Share → **Add to Home
+Screen** for a full-screen, offline-capable experience.
 
 More games can be added easily — see below.
 
