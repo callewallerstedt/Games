@@ -812,6 +812,10 @@ p { margin: 0 0 .8em; }
 .category-result { display: grid; gap: 8px; }
 .category-result h3 { font-size: .9rem; color: var(--text-soft); text-transform: uppercase; margin: 0; }
 .category-result-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.category-review-focus { margin-top: 14px; display: grid; gap: 10px; }
+.category-review-answer { display: flex; flex-direction: column; gap: 4px; font-size: 1.05rem; }
+.category-review-current { outline: 2px solid var(--brand); outline-offset: 1px; }
+.category-review-done { opacity: .72; }
 @media (max-width: 390px) { .category-field { grid-template-columns: 1fr; gap: 5px; } }
 
 /* ---------- Word Duel ---------- */
