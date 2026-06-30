@@ -1,5 +1,5 @@
 // "Closest Guess" — estimate wild numbers; nearest answer wins the round.
-import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic, connectionPill } from "../ui.js";
 import { GUESS_PROMPTS } from "../data/guess-prompts.js";
 
 const game = {
@@ -10,17 +10,20 @@ const game = {
   blurb: "How many? How long? How far? Closest estimate wins!",
   minPlayers: 2,
   maxPlayers: 10,
-  modes: ["local"],
+  modes: ["local", "online"],
   estMinutes: 12,
   rulesHTML: `
     <p>We show a question with a unit (meters, years, teeth, whatever). Everyone secretly guesses a number.</p>
     <ol>
-      <li>Pass the phone — each player enters their estimate.</li>
+      <li>Each player enters their estimate on their own phone (online) or passes the phone around (local).</li>
       <li>We reveal the true answer and everyone's <b>error</b> (how far off).</li>
       <li>Closest guess wins the round! 🎯</li>
     </ol>
-    <p class="muted">No googling — pure gut feel. The weirder the question, the better.</p>`,
-  mount(ctx) { local(ctx); },
+    <p class="muted">No googling — pure gut feel. Online mode is for two players.</p>`,
+  mount(ctx) {
+    if (ctx.mode === "online") online(ctx);
+    else local(ctx);
+  },
 };
 
 function fmt(n) {
@@ -29,6 +32,150 @@ function fmt(n) {
   return n.toFixed(1);
 }
 
+function revealScreen(names, item, guesses, errors, scores, onNext) {
+  const best = Math.min(...errors);
+  const winners = errors.map((e, i) => e === best ? i : -1).filter((i) => i >= 0);
+  const rows = names.map((n, i) => {
+    const off = errors[i];
+    const isWin = off === best;
+    return el("div", { class: `answer-card reveal-anim ${isWin ? "me" : ""}` }, [
+      el("span", { class: "who" }, n + (isWin ? " 🎯" : "")),
+      el("span", { class: "val" }, [
+        el("div", {}, fmt(guesses[i]) + " " + item.unit),
+        el("div", { class: "tiny muted", style: "font-weight:600;margin-top:2px" }, `off by ${fmt(off)}`),
+      ]),
+    ]);
+  });
+  return el("div", { class: "screen" }, [
+    el("div", { class: "card center" }, [
+      el("div", { class: "kicker" }, "True answer"),
+      el("div", { class: "q-big", style: "font-size:2.2rem" }, `${fmt(item.answer)}`),
+      el("p", { class: "muted" }, item.unit),
+      el("div", { class: "verdict match" }, winners.length > 1 ? "Tie! 🤝" : `${names[winners[0]]} was closest!`),
+    ]),
+    el("div", { class: "stack" }, rows),
+    el("div", { class: "scorebar" }, names.map((n, i) => scoreChip(scores[i], n))),
+    el("div", { class: "footer-actions" }, button("Next question →", { big: true, onClick: onNext })),
+  ]);
+}
+
+function guessInputScreen(names, myIndex, item, onSubmit) {
+  const input = el("input", { class: "field", type: "number", inputmode: "decimal", placeholder: "Your guess…" });
+  const btn = button("Lock in ✓", { big: true, disabled: true, onClick: () => onSubmit(parseFloat(input.value)) });
+  input.addEventListener("input", () => { btn.disabled = input.value === "" || isNaN(parseFloat(input.value)); });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) btn.click(); });
+  setTimeout(() => input.focus(), 40);
+  return el("div", { class: "card" }, [
+    el("div", { class: "pill" }, `${names[myIndex]} — secret guess`),
+    el("div", { class: "q-big" }, item.q),
+    el("p", { class: "center muted" }, [`Unit: `, el("b", {}, item.unit)]),
+    el("div", { class: "stack" }, [input, btn]),
+  ]);
+}
+
+function waitingView(msg) {
+  return el("div", { class: "card center" }, [
+    el("div", { class: "waiting" }, [el("div", { class: "spinner" }), msg]),
+  ]);
+}
+
+/* ---------------- ONLINE (two phones) ---------------- */
+function online(ctx) {
+  const { session } = ctx;
+  const isHost = session.isHost;
+  const names = session.players;
+  let deck = shuffle(GUESS_PROMPTS);
+  let qi = 0;
+  const scores = [0, 0];
+  let currentItem = null;
+  let guesses = [null, null];
+  let mySubmitted = false;
+
+  const status = connectionPill();
+  session.onStatus(status.set);
+  const screen = (b) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), b]));
+
+  const myIndex = () => (isHost ? 0 : 1);
+
+  function showGuess() {
+    mySubmitted = false;
+    screen(guessInputScreen(names, myIndex(), currentItem, (value) => {
+      guesses[myIndex()] = value;
+      mySubmitted = true;
+      if (isHost) {
+        if (guesses[1] !== null) tryReveal();
+        else screen(waitingView(`Waiting for ${session.partnerName}…`));
+      } else {
+        session.send("guess_submit", { value });
+        screen(waitingView(`Waiting for ${session.partnerName}…`));
+      }
+    }));
+  }
+
+  function hostReveal() {
+    const errors = guesses.map((g) => Math.abs(g - currentItem.answer));
+    const best = Math.min(...errors);
+    const winners = errors.map((e, i) => e === best ? i : -1).filter((i) => i >= 0);
+    winners.forEach((i) => { scores[i]++; });
+    const payload = { item: currentItem, guesses: guesses.slice(), errors, scores: scores.slice() };
+    session.send("guess_reveal", payload);
+    showReveal(payload);
+  }
+
+  function tryReveal() {
+    if (!isHost) return;
+    if (guesses[0] === null || guesses[1] === null) return;
+    hostReveal();
+  }
+
+  function showReveal(p) {
+    if (p.errors.filter((e) => e === Math.min(...p.errors)).length === 1) celebrate();
+    screen(revealScreen(names, p.item, p.guesses, p.errors, p.scores, () => {
+      if (isHost) hostNewRound();
+      else session.send("guess_next");
+    }));
+    haptic(12);
+  }
+
+  function hostNewRound() {
+    if (qi >= deck.length) { deck = shuffle(GUESS_PROMPTS); qi = 0; }
+    currentItem = deck[qi++];
+    guesses = [null, null];
+    mySubmitted = false;
+    session.send("guess_round", { q: currentItem.q, unit: currentItem.unit });
+    showGuess();
+  }
+
+  session.on("guess_round", (m) => {
+    if (isHost) return;
+    currentItem = { q: m.q, unit: m.unit };
+    guesses = [null, null];
+    mySubmitted = false;
+    showGuess();
+  });
+  session.on("guess_submit", (m) => {
+    if (!isHost) return;
+    guesses[1] = m.value;
+    if (guesses[0] !== null) tryReveal();
+    else screen(waitingView(`Got ${session.partnerName}'s guess — lock in yours!`));
+  });
+  session.on("guess_reveal", (m) => {
+    scores[0] = m.scores[0];
+    scores[1] = m.scores[1];
+    showReveal(m);
+  });
+  session.on("guess_next", () => { if (isHost) hostNewRound(); });
+
+  screen(el("div", { class: "card center" }, [
+    el("h2", {}, "📏 Closest Guess"),
+    el("p", { class: "muted" }, "Wild estimation questions — closest guess wins each round."),
+    isHost
+      ? el("div", { class: "footer-actions" }, button("Start →", { big: true, onClick: hostNewRound }))
+      : el("div", { class: "waiting" }, [el("div", { class: "spinner" }), `Waiting for ${session.partnerName} to start…`]),
+  ]));
+}
+
+/* ---------------- LOCAL (pass the phone) ---------------- */
 function local(ctx) {
   const names = ctx.players;
   let deck = shuffle(GUESS_PROMPTS);
@@ -45,20 +192,10 @@ function local(ctx) {
     for (let i = 0; i < names.length; i++) {
       await passDevice(names[i], "Don't let anyone see your guess!");
       await new Promise((res) => {
-        const input = el("input", { class: "field", type: "number", inputmode: "decimal", placeholder: "Your guess…" });
-        const btn = button("Lock in ✓", { big: true, disabled: true, onClick: () => {
-          guesses[i] = parseFloat(input.value);
+        screen(guessInputScreen(names, i, item, (value) => {
+          guesses[i] = value;
           res();
-        } });
-        input.addEventListener("input", () => { btn.disabled = input.value === "" || isNaN(parseFloat(input.value)); });
-        input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) btn.click(); });
-        setTimeout(() => input.focus(), 40);
-        screen(el("div", { class: "card" }, [
-          el("div", { class: "pill" }, `${names[i]} — secret guess`),
-          el("div", { class: "q-big" }, item.q),
-          el("p", { class: "center muted" }, [`Unit: `, el("b", {}, item.unit)]),
-          el("div", { class: "stack" }, [input, btn]),
-        ]));
+        }));
       });
     }
 
@@ -68,29 +205,7 @@ function local(ctx) {
     winners.forEach((i) => { scores[i]++; });
     if (winners.length === 1) celebrate();
 
-    const rows = names.map((n, i) => {
-      const off = errors[i];
-      const isWin = off === best;
-      return el("div", { class: `answer-card reveal-anim ${isWin ? "me" : ""}` }, [
-        el("span", { class: "who" }, n + (isWin ? " 🎯" : "")),
-        el("span", { class: "val" }, [
-          el("div", {}, fmt(guesses[i]) + " " + item.unit),
-          el("div", { class: "tiny muted", style: "font-weight:600;margin-top:2px" }, `off by ${fmt(off)}`),
-        ]),
-      ]);
-    });
-
-    screen(el("div", { class: "screen" }, [
-      el("div", { class: "card center" }, [
-        el("div", { class: "kicker" }, "True answer"),
-        el("div", { class: "q-big", style: "font-size:2.2rem" }, `${fmt(item.answer)}`),
-        el("p", { class: "muted" }, item.unit),
-        el("div", { class: "verdict match" }, winners.length > 1 ? "Tie! 🤝" : `${names[winners[0]]} was closest!`),
-      ]),
-      el("div", { class: "stack" }, rows),
-      el("div", { class: "scorebar" }, names.map((n, i) => scoreChip(scores[i], n))),
-      el("div", { class: "footer-actions" }, button("Next question →", { big: true, onClick: round })),
-    ]));
+    screen(revealScreen(names, item, guesses, errors, scores, round));
     haptic(12);
   }
 
