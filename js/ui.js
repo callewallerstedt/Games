@@ -55,10 +55,35 @@ export function render(content) {
   window.scrollTo(0, 0);
 }
 
+export function hardRefreshSite() {
+  const run = async () => {
+    try {
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((reg) => reg.unregister()));
+      }
+    } catch {}
+    const url = new URL(location.href.split("#")[0]);
+    url.searchParams.set("_", String(Date.now()));
+    location.replace(`${url.toString()}${location.hash || ""}`);
+  };
+  run();
+}
+
 export function topbar({ onBack, right } = {}) {
   return el("div", { class: "topbar" }, [
     onBack ? el("button", { class: "iconbtn", "aria-label": "Back", title: "Back", onClick: onBack }, "‹") : null,
-    el("div", { class: "brand" }, "Party Games"),
+    el("button", {
+      class: "brand brand-refresh",
+      type: "button",
+      "aria-label": "Party Games — refresh for latest version",
+      title: "Refresh for latest version",
+      onClick: hardRefreshSite,
+    }, "Party Games"),
     el("div", { class: "spacer" }),
     right || null,
   ]);

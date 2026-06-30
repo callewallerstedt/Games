@@ -26,6 +26,7 @@
   --status-bg: #f5f7f8;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
   --grad: var(--brand);
+  --menu-gradient: linear-gradient(-45deg, #f5f7f8, #dff0eb, #e8eef8, #edf5f2, #f5f7f8);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
@@ -42,6 +43,7 @@
     --shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
     --shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.42);
     --status-bg: #111718;
+    --menu-gradient: linear-gradient(-45deg, #111718, #152521, #121a24, #141c18, #111718);
   }
 }
 
@@ -66,6 +68,7 @@
   --shadow-sm: 0 2px 8px rgba(23, 32, 38, 0.07);
   --status-bg: #f5f7f8;
   --grad: var(--brand);
+  --menu-gradient: linear-gradient(-45deg, #f5f7f8, #dff0eb, #e8eef8, #edf5f2, #f5f7f8);
 }
 
 :root[data-theme="dark"] {
@@ -75,6 +78,7 @@
   --shadow: 0 14px 36px rgba(0,0,0,.5); --shadow-sm: 0 4px 16px rgba(0,0,0,.42);
   --status-bg: #111718;
   --grad: var(--brand);
+  --menu-gradient: linear-gradient(-45deg, #111718, #152521, #121a24, #141c18, #111718);
 }
 
 :root[data-theme="pink"] {
@@ -97,31 +101,48 @@
   --shadow-sm: 0 2px 10px rgba(240, 120, 160, 0.10);
   --status-bg: #fceef3;
   --grad: linear-gradient(135deg, #f08aaa, #fbc8d8 55%, #f5e6c8);
-}
-
-:root[data-theme="pink"] body {
-  background-image: radial-gradient(120% 80% at 0% 0%, #ffe8f1 0%, transparent 55%),
-                    radial-gradient(120% 80% at 100% 100%, #fff3e4 0%, transparent 55%);
-  background-attachment: fixed;
+  --menu-gradient: linear-gradient(-45deg, #fdf4f7, #ffe8f1, #fff3e4, #fceef3, #fdf4f7);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html {
   height: 100%;
-  background-color: var(--status-bg);
+  min-height: 100%;
+  background: var(--status-bg);
 }
 body {
   margin: 0;
   min-height: 100svh;
   min-height: 100dvh;
   min-height: -webkit-fill-available;
-  background-color: var(--bg);
+  background: var(--status-bg);
   font-family: var(--font);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   line-height: 1.45;
   overscroll-behavior-y: none;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--status-bg);
+  pointer-events: none;
+}
+body.hub-menu::before {
+  background: var(--menu-gradient);
+  background-size: 400% 400%;
+  animation: menu-gradient-flow 22s ease infinite;
+}
+@keyframes menu-gradient-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.hub-menu::before { animation: none; background-size: 100% 100%; }
 }
 #app {
   max-width: var(--maxw);
@@ -150,6 +171,11 @@ p { margin: 0 0 .8em; }
 .topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; min-height: 44px; }
 .topbar .spacer { flex: 1; }
 .brand { font-weight: 800; letter-spacing: 0; font-size: 1rem; display: flex; gap: 8px; align-items: center; }
+.brand-refresh {
+  appearance: none; border: 0; background: transparent; color: inherit; font: inherit;
+  cursor: pointer; padding: 0; text-align: left;
+}
+.brand-refresh:active { opacity: .72; }
 .iconbtn {
   appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--text);
   width: 44px; height: 44px; border-radius: 7px; font-size: 1.15rem; cursor: pointer;

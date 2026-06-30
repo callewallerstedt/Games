@@ -25,6 +25,13 @@
         var t = localStorage.getItem("together_theme") || "auto";
         if (t === "cute") t = "pink";
         if (t !== "auto") document.documentElement.setAttribute("data-theme", t);
+        var colors = { light: "#f5f7f8", dark: "#111718", pink: "#fceef3" };
+        var themeColor = t === "auto"
+          ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? colors.dark : colors.light)
+          : (colors[t] || colors.light);
+        document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) {
+          meta.setAttribute("content", themeColor);
+        });
       } catch (e) {}
     })();
   </script>

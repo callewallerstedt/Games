@@ -12,6 +12,7 @@ const home = () => go("#/");
 function cleanup() {
   disposeActiveGame();
   cleanupLobby();
+  document.body.classList.remove("hub-menu");
   document.querySelectorAll(".pass, .modal-bg, .toast").forEach((n) => n.remove());
 }
 
@@ -55,6 +56,7 @@ function saveFavorites(ids) {
 }
 
 function hub() {
+  document.body.classList.add("hub-menu");
   const scanBtn = el("button", {
     class: "iconbtn scan-btn",
     "aria-label": "Scan QR to join",
