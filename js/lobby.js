@@ -2,6 +2,7 @@
 import {
   el, render, topbar, button, connectionPill, toast, rulesModal, modal,
   PLAYER_COLORS, normalizePlayerColor, setPlayerColors,
+  partyLeaderboard, takeStandings, clearStandings,
 } from "./ui.js";
 import { hostRoom, joinRoom } from "./net.js";
 import { onlineSession } from "./session.js";
@@ -14,6 +15,22 @@ import {
 
 const ROOM_CAPACITY = 10;
 let active = null;
+
+// Stable, persisted ids so a reload (or app-switch) keeps the same invite link
+// and lets a returning guest reclaim their original slot instead of duplicating.
+const HOST_PEER_KEY = "party_host_peer_id";
+const CLIENT_ID_KEY = "party_client_id";
+const randomId = (prefix) => prefix + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
+function persistedId(key, prefix) {
+  let value = "";
+  try { value = localStorage.getItem(key) || ""; } catch {}
+  if (!value) { value = randomId(prefix); try { localStorage.setItem(key, value); } catch {} }
+  return value;
+}
+const hostPeerId = () => persistedId(HOST_PEER_KEY, "tgh-");
+const clientId = () => persistedId(CLIENT_ID_KEY, "tgc-");
+const saveHostPeerId = (value) => { try { localStorage.setItem(HOST_PEER_KEY, value); } catch {} };
+const identityOf = (entry) => entry?.id || entry?.peerId || entry?.name;
 
 export function cleanupLobby() {
   if (active?.destroy) { try { active.destroy(); } catch {} }
@@ -163,21 +180,69 @@ function settingsFor(game) {
 
 /** Host a persistent room. */
 export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalFallback }) {
-  const transport = hostRoom({ maxGuests: ROOM_CAPACITY - 1 });
+  const transport = hostRoom({ maxGuests: ROOM_CAPACITY - 1, id: hostPeerId() });
   active = transport;
   let game = initialGame;
   let settings = settingsFor(game);
   let profile = initialProfile();
-  let roster = [{ peerId: "host", ...profile }];
+  let roster = [{ peerId: "host", id: "host", ...profile }];
   let started = false;
   let joinUrl = null;
   let currentSession = null;
+  const partyWins = new Map(); // identity -> { name, color, wins, points }
 
   const status = connectionPill();
   status.set("waiting");
   transport.onStatus(status.set);
+  transport.onIdChange((newId) => {
+    saveHostPeerId(newId);
+    joinUrl = buildJoinUrl(game.id, newId);
+    if (!started) renderRoom();
+  });
+
+  // Credit the just-finished game's winner(s) toward the party leaderboard.
+  const recordGameResult = () => {
+    const standings = takeStandings();
+    clearStandings();
+    if (!standings || !standings.scores.length) return;
+    const max = Math.max(...standings.scores);
+    if (max <= 0) return;
+    standings.players.forEach((name, i) => {
+      const entry = roster[i];
+      const key = entry ? identityOf(entry) : `name:${name}`;
+      const rec = partyWins.get(key) || { name, color: entry?.color, wins: 0, points: 0 };
+      rec.name = entry?.name || name;
+      if (entry?.color) rec.color = entry.color;
+      rec.points += standings.scores[i];
+      if (standings.scores[i] === max) rec.wins += 1;
+      partyWins.set(key, rec);
+    });
+  };
+
+  const finishParty = () => {
+    recordGameResult();
+    currentSession?.destroy?.();
+    currentSession = null;
+    started = false;
+    const entries = roster.map((entry) => {
+      const rec = partyWins.get(identityOf(entry));
+      return { name: entry.name, color: entry.color, wins: rec?.wins || 0, points: rec?.points || 0 };
+    });
+    transport.broadcast({ t: "party_over", entries });
+    partyLeaderboard(entries, { onClose: home });
+  };
 
   const peerToIndex = () => new Map(roster.slice(1).map((player, i) => [player.peerId, i + 1]));
+  // Locate a guest's slot by their stable clientId (survives reconnects), falling
+  // back to the live peerId. Returns null for an unknown / brand-new guest.
+  const findSlot = (message) => {
+    if (message.clientId) {
+      const byId = roster.findIndex((p, i) => i > 0 && p.id === message.clientId);
+      if (byId > 0) return byId;
+    }
+    const byPeer = peerToIndex().get(message._from);
+    return byPeer == null ? null : byPeer;
+  };
   const syncLobby = (peerId = null) => {
     const message = { t: "lobby_sync", gameId: game.id, roster, settings };
     if (peerId) transport.send(message, peerId); else transport.broadcast(message);
@@ -226,6 +291,7 @@ export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalF
     const limit = game.onlineMaxPlayers ?? game.maxPlayers;
     if (roster.length < game.minPlayers || roster.length > limit || !game.modes.includes("online")) return;
     started = true;
+    clearStandings();
     transport._lastSent = null;
     transport._lastPrivate = {};
     const startMessage = { t: "start", gameId: game.id, roster, settings };
@@ -234,15 +300,17 @@ export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalF
     setTimeout(() => {
       currentSession = startOnline(game, transport, {
         isHost: true, myIndex: 0, roster, settings, joinUrl,
-        exit: returnEveryoneToRoom,
+        exit: returnEveryoneToRoom, finishParty,
       });
     }, 120);
   }
 
   function returnEveryoneToRoom() {
+    recordGameResult();
     currentSession?.destroy?.();
     currentSession = null;
     started = false;
+    transport._gameStart = null;
     transport.broadcast({ t: "room_return", gameId: game.id, roster, settings });
     renderRoom();
   }
@@ -254,10 +322,12 @@ export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalF
       return;
     }
     if (message.t === "profile_update" && message._from) {
-      const index = peerToIndex().get(message._from);
+      const index = findSlot(message);
       if (index == null) return;
       roster[index] = {
         ...roster[index],
+        peerId: message._from,
+        id: message.clientId || roster[index].id,
         name: (message.name || "Player").trim().slice(0, 16) || "Player",
         color: normalizePlayerColor(message.color, PLAYER_COLORS[index % PLAYER_COLORS.length]),
       };
@@ -266,7 +336,8 @@ export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalF
       return;
     }
     if (message.t !== "hello" || !message._from) return;
-    let index = peerToIndex().get(message._from);
+    let index = findSlot(message);
+    const reconnecting = index != null;
     if (index == null) {
       if (roster.length >= ROOM_CAPACITY) {
         transport.send({ t: "lobby_full" }, message._from);
@@ -275,9 +346,20 @@ export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalF
       index = roster.length;
       roster.push({
         peerId: message._from,
+        id: message.clientId || message._from,
         name: (message.name || `Player ${index + 1}`).slice(0, 16),
         color: normalizePlayerColor(message.color, PLAYER_COLORS[index % PLAYER_COLORS.length]),
       });
+    } else {
+      // Returning guest: refresh their (possibly new) peerId in place so routing
+      // and private sends keep working — they keep the same slot.
+      roster[index] = {
+        ...roster[index],
+        peerId: message._from,
+        id: message.clientId || roster[index].id,
+        name: (message.name || roster[index].name || `Player ${index + 1}`).slice(0, 16),
+        color: normalizePlayerColor(message.color, roster[index].color),
+      };
     }
     transport.send({ t: "welcome", slot: index, gameId: game.id, roster, settings }, message._from);
     if (started && transport._gameStart) {
@@ -285,7 +367,7 @@ export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalF
       if (transport._lastPrivate?.[index]) transport.send(transport._lastPrivate[index], message._from);
       if (transport._lastSent) transport.send(transport._lastSent, message._from);
     }
-    else { syncLobby(); renderRoom(); }
+    else { syncLobby(); if (!reconnecting || !started) renderRoom(); }
   });
 
   transport.onPeerLeave((peerId) => {
@@ -299,7 +381,7 @@ export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalF
 
   render([topbar({ onBack: home, right: status.node }), profileEditor(profile, saveProfile), el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Opening room"])]);
   transport.ready
-    .then((id) => { joinUrl = buildJoinUrl(initialGame.id, id); renderRoom(); })
+    .then((id) => { saveHostPeerId(id); joinUrl = buildJoinUrl(game.id, id); renderRoom(); })
     .catch(() => render([topbar({ onBack: home }), el("div", { class: "card center" }, [
       el("h2", {}, "Could not open a room"),
       el("p", { class: "muted" }, "Check the connection or play on one device."),
@@ -311,7 +393,8 @@ export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalF
 export function joinFlow(gameId, peerId, { home, startOnline: mountOnline }) {
   let game = getGame(gameId);
   if (!game) return home();
-  const transport = joinRoom(peerId);
+  const cid = clientId();
+  const transport = joinRoom(peerId, { myId: cid });
   active = transport;
   let settings = settingsFor(game);
   let profile = initialProfile();
@@ -322,10 +405,13 @@ export function joinFlow(gameId, peerId, { home, startOnline: mountOnline }) {
 
   const status = connectionPill();
   status.set("reconnecting");
+  // Said on every (re)connect: the host uses our clientId to hand back the same
+  // slot and, if a game is in progress, replays the current state to us.
+  const announce = () => transport.send({ t: "hello", clientId: cid, ...profile });
   const sendProfile = () => {
     saveName(profile.name);
     saveColor(profile.color);
-    transport.send({ t: myIndex == null ? "hello" : "profile_update", ...profile });
+    transport.send({ t: myIndex == null ? "hello" : "profile_update", clientId: cid, ...profile });
   };
   const updateProfile = (next) => {
     profile = { name: next.name.trim() || "Player", color: normalizePlayerColor(next.color) };
@@ -364,7 +450,7 @@ export function joinFlow(gameId, peerId, { home, startOnline: mountOnline }) {
 
   transport.onStatus((state) => {
     status.set(state);
-    if (state === "connected") sendProfile();
+    if (state === "connected") announce();
     if (state === "closed") render([topbar({ onBack: home }), el("div", { class: "card center" }, [
       el("h2", {}, "Room disconnected"),
       el("p", { class: "muted" }, "Ask the host for a fresh invite link."),
@@ -380,7 +466,9 @@ export function joinFlow(gameId, peerId, { home, startOnline: mountOnline }) {
       game = getGame(message.gameId) || game;
       roster = message.roster || roster;
       settings = message.settings || settings;
-      renderRoom();
+      // Only fall back to the lobby view when we aren't already mid-game — a
+      // reconnect during a round must not yank us out of it.
+      if (!started) renderRoom();
       return;
     }
     if (message.t === "lobby_sync" && !started) {
@@ -391,6 +479,13 @@ export function joinFlow(gameId, peerId, { home, startOnline: mountOnline }) {
       return;
     }
     if (message.t === "start") { enterGame(message); return; }
+    if (message.t === "party_over") {
+      currentSession?.destroy?.();
+      currentSession = null;
+      started = false;
+      partyLeaderboard(message.entries || [], { onClose: home });
+      return;
+    }
     if (message.t === "room_return") {
       currentSession?.destroy?.();
       currentSession = null;
@@ -405,17 +500,22 @@ export function joinFlow(gameId, peerId, { home, startOnline: mountOnline }) {
 }
 
 export function startOnline(game, transport, opts) {
-  const peerToSlot = new Map();
-  if (opts.isHost) opts.roster.slice(1).forEach((player, i) => { if (player.peerId) peerToSlot.set(player.peerId, i + 1); });
+  const roster = opts.roster || [];
   const session = onlineSession(transport, {
     ...opts,
-    resolveFrom: (message) => (message._from ? peerToSlot.get(message._from) : message.from),
+    // Resolve against the *live* roster so a guest who reconnected with a new
+    // peerId mid-game still maps to their original slot.
+    resolveFrom: (message) => {
+      if (!message._from) return message.from;
+      const i = roster.findIndex((p) => p && p.peerId === message._from);
+      return i >= 0 ? i : message.from;
+    },
   });
   setPlayerColors(session.players, session.playerColors);
   game.mount({
     mode: "online", isHost: opts.isHost, myIndex: opts.myIndex, session,
     players: session.players, playerColors: session.playerColors, settings: session.settings,
-    exit: opts.exit, reconnectInfo: () => reconnectSheet(session),
+    exit: opts.exit, finishParty: opts.finishParty, reconnectInfo: () => reconnectSheet(session),
   });
   return session;
 }

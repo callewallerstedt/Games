@@ -150,6 +150,8 @@ export function rulesModal(game) {
 
 // Standard in-game header: back button + rules + (optional) connection status.
 // In online games the status pill is tappable to re-show the rejoin code.
+// When the host is online, the back button opens a menu: end this game (back to
+// the lobby) or finish the whole party (final leaderboard).
 export function gameHeader(ctx, game, statusNode) {
   if (statusNode && ctx && ctx.reconnectInfo) {
     statusNode.style.cursor = "pointer";
@@ -160,7 +162,20 @@ export function gameHeader(ctx, game, statusNode) {
     statusNode || null,
     el("button", { class: "iconbtn", "aria-label": "Rules", onClick: () => rulesModal(game) }, "?"),
   ]);
-  return topbar({ onBack: () => { disposeActiveGame(); ctx.exit(); }, right });
+  const onBack = ctx?.finishParty
+    ? () => hostExitMenu(ctx)
+    : () => { disposeActiveGame(); ctx.exit(); };
+  return topbar({ onBack, right });
+}
+
+// Host-only menu shown from the in-game back button.
+export function hostExitMenu(ctx) {
+  let close;
+  close = modal("Host controls", el("div", { class: "stack host-menu" }, [
+    button("End this game · back to lobby", { big: true, variant: "secondary", onClick: () => { close(); disposeActiveGame(); ctx.exit(); } }),
+    button("Finish party 🏆", { big: true, onClick: () => { close(); disposeActiveGame(); ctx.finishParty(); } }),
+    el("p", { class: "muted center tiny", style: "margin:4px 0 0" }, "End the game to pick another, or finish the party to reveal the winner."),
+  ]), { centered: true });
 }
 
 // Segmented control. options: [{value,label}]. Returns { node, get() }.
@@ -209,13 +224,63 @@ export function scoreChip(n, label, opts = {}) {
   }, [el("span", { class: "n" }, String(n)), el("span", { class: "l" }, label)]);
 }
 
+// The latest standings any game has shown via scoreboard(). The lobby reads this
+// when a game ends so the party leaderboard can credit the round's winner(s).
+let latestStandings = null;
+export function recordStandings(players, scores) {
+  if (!Array.isArray(players) || !Array.isArray(scores)) return;
+  latestStandings = { players: players.slice(), scores: scores.map((n) => Number(n) || 0) };
+}
+export function takeStandings() { return latestStandings; }
+export function clearStandings() { latestStandings = null; }
+
 export function scoreboard(players, scores, opts = {}) {
   const activeIndex = Number.isInteger(opts.activeIndex) ? opts.activeIndex : -1;
+  recordStandings(players, scores);
   return el("div", { class: "scorebar shared-scoreboard", "aria-label": "Scoreboard" },
     players.map((name, i) => scoreChip(scores[i] ?? 0, name, {
       active: i === activeIndex,
       color: opts.colors?.[i],
     })));
+}
+
+// Full-screen party wrap-up: a podium reveal of who won the most games.
+// `entries` = [{ name, color, wins, points }], unsorted. `onClose` runs on dismiss.
+export function partyLeaderboard(entries, { onClose, subtitle } = {}) {
+  const ranked = entries.slice().sort((a, b) => (b.wins - a.wins) || (b.points - a.points));
+  const topWins = ranked[0]?.wins ?? 0;
+  const topPoints = ranked[0]?.points ?? 0;
+  const winners = ranked.filter((e) => e.wins === topWins && e.points === topPoints && topWins + topPoints > 0);
+  const medals = ["🥇", "🥈", "🥉"];
+
+  const rows = ranked.map((entry, i) => {
+    const isWinner = winners.includes(entry);
+    return el("div", {
+      class: `party-rank-row reveal-anim${isWinner ? " winner" : ""}`,
+      style: `--player-color:${normalizePlayerColor(entry.color)};animation-delay:${0.12 * (ranked.length - i)}s`,
+    }, [
+      el("span", { class: "party-rank-place" }, medals[i] || `#${i + 1}`),
+      el("span", { class: "party-rank-dot" }),
+      el("span", { class: "party-rank-name" }, entry.name),
+      el("span", { class: "party-rank-score" }, `${entry.wins} win${entry.wins === 1 ? "" : "s"}`),
+    ]);
+  });
+
+  const champLine = winners.length === 0
+    ? "What a session! 🎉"
+    : winners.length === 1
+      ? `${winners[0].name} wins the party! 🏆`
+      : `It's a tie: ${winners.map((w) => w.name).join(" & ")}! 🏆`;
+
+  const screen = el("div", { class: "screen party-finale" }, [
+    el("div", { class: "party-finale-kicker" }, "Party results"),
+    el("h1", { class: "party-finale-title" }, champLine),
+    subtitle ? el("p", { class: "muted center" }, subtitle) : null,
+    el("div", { class: "party-rank-list stack" }, rows),
+    el("div", { class: "footer-actions" }, button("Back to games", { big: true, onClick: () => { try { onClose?.(); } catch {} } })),
+  ]);
+  render(screen);
+  if (winners.length) celebrate();
 }
 
 export function onlineReadyGate(session, gateId, onAllReady, opts = {}) {

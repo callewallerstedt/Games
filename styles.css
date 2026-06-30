@@ -941,3 +941,22 @@ p { margin: 0 0 .8em; }
 
 /* Theme picker / generic icon-button group */
 .theme-fab { font-size: 1.1rem; }
+
+/* Host-only in-game menu (End game / Finish party) */
+.host-menu { gap: 12px; }
+
+/* Party finale — leaderboard reveal of who won the whole session */
+.party-finale { text-align: center; padding-top: 8px; }
+.party-finale-kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .72rem; font-weight: 800;
+  color: var(--text-soft); margin-bottom: 6px; }
+.party-finale-title { font-size: 1.55rem; line-height: 1.15; margin: 0 0 6px; }
+.party-rank-list { margin-top: 18px; gap: 10px; }
+.party-rank-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px;
+  border: 1.5px solid var(--line); background: var(--surface); box-shadow: var(--shadow-sm); }
+.party-rank-row.winner { border-color: var(--player-color, var(--brand));
+  background: color-mix(in srgb, var(--player-color, var(--brand)) 12%, var(--surface));
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--player-color, var(--brand)) 30%, transparent); }
+.party-rank-place { font-size: 1.4rem; min-width: 1.6em; text-align: center; }
+.party-rank-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--player-color, var(--brand)); flex: none; }
+.party-rank-name { font-weight: 800; flex: 1; text-align: left; }
+.party-rank-score { font-weight: 800; color: var(--text-soft); font-variant-numeric: tabular-nums; }
