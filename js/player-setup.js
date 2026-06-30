@@ -7,6 +7,74 @@ export const saveName = (n) => { try { localStorage.setItem("together_name", n);
 export const rememberedColor = () => normalizePlayerColor(localStorage.getItem("together_color"), PLAYER_COLORS[0]);
 export const saveColor = (color) => { try { localStorage.setItem("together_color", normalizePlayerColor(color)); } catch {} };
 
+let hubProfileExpanded = null;
+
+export function hubProfileCard({ onUpdate } = {}) {
+  const savedName = rememberedName().trim();
+  const savedColor = rememberedColor();
+  if (hubProfileExpanded === null) hubProfileExpanded = !savedName;
+
+  const expand = () => {
+    hubProfileExpanded = true;
+    onUpdate?.();
+  };
+
+  if (!hubProfileExpanded) {
+    return el("div", { class: "profile-card profile-card-compact" }, [
+      el("div", { class: "profile-compact" }, [
+        el("span", { class: "profile-compact-dot", style: `--player-color:${savedColor}` }),
+        el("span", { class: "profile-compact-name" }, savedName || "Player"),
+        el("button", {
+          class: "profile-edit-btn",
+          type: "button",
+          "aria-label": "Edit name and color",
+          title: "Edit name and color",
+          onClick: expand,
+        }, "✎"),
+      ]),
+    ]);
+  }
+
+  let myColor = savedColor;
+  const nameInput = el("input", {
+    class: "field",
+    placeholder: "Your name",
+    value: rememberedName(),
+    maxlength: "16",
+    enterkeyhint: "done",
+    style: "text-align:left",
+    oninput: (e) => saveName(e.target.value.trim()),
+    onchange: (e) => saveName(e.target.value.trim()),
+  });
+  const colorControl = playerColorControl(() => nameInput.value.trim() || "you", myColor, (color) => {
+    myColor = color;
+    saveColor(color);
+  });
+
+  const collapseIfReady = () => {
+    const name = nameInput.value.trim();
+    if (!name) return;
+    if (document.querySelector(".modal-bg")) return;
+    hubProfileExpanded = false;
+    onUpdate?.();
+  };
+
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      saveName(nameInput.value.trim());
+      collapseIfReady();
+    }
+  });
+  nameInput.addEventListener("blur", () => setTimeout(collapseIfReady, 150));
+  setTimeout(() => nameInput.focus(), 30);
+
+  return el("div", { class: "profile-card profile-card-expanded stack" }, [
+    el("p", { class: "muted profile-card-label" }, "Your name (saved on this device)"),
+    el("div", { class: "name-row" }, [colorControl, nameInput]),
+    el("p", { class: "muted color-hint" }, "Tap the color circle to make it yours."),
+  ]);
+}
+
 export function playerColorControl(label, initial, onChange) {
   let value = normalizePlayerColor(initial);
   const trigger = el("button", {

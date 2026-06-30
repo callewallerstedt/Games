@@ -3,7 +3,7 @@ import { el, render, topbar, registerSW, iosInstallTip, applyTheme, themePicker,
 import { GAMES, getGame } from "./games/registry.js";
 import { openScanner } from "./scan.js";
 import { fakeMiniQrIcon } from "./qr.js";
-import { playerColorControl, rememberedName, saveName, rememberedColor, saveColor } from "./player-setup.js";
+import { hubProfileCard } from "./player-setup.js";
 import { cleanupLobby, gameLobby, hostFlow, joinFlow, startOnline, startLocal } from "./lobby.js";
 
 const go = (hash) => { if (location.hash === hash) router(); else location.hash = hash; };
@@ -55,22 +55,6 @@ function saveFavorites(ids) {
 }
 
 function hub() {
-  let myColor = rememberedColor();
-  const nameInput = el("input", {
-    class: "field",
-    placeholder: "Your name",
-    value: rememberedName(),
-    maxlength: "16",
-    enterkeyhint: "done",
-    style: "text-align:left",
-    oninput: (e) => saveName(e.target.value.trim()),
-    onchange: (e) => saveName(e.target.value.trim()),
-  });
-  const colorControl = playerColorControl(() => nameInput.value.trim() || "you", myColor, (color) => {
-    myColor = color;
-    saveColor(color);
-  });
-
   const scanBtn = el("button", {
     class: "iconbtn scan-btn",
     "aria-label": "Scan QR to join",
@@ -125,10 +109,8 @@ function hub() {
       el("h1", {}, "Games for the room"),
       el("div", { class: "tag" }, "Play on one device or host a room for friends."),
     ]),
-    el("div", { class: "card stack", style: "margin-bottom:14px" }, [
-      el("p", { class: "muted", style: "margin:0 0 8px; font-size:.9rem" }, "Your name (saved on this device)"),
-      el("div", { class: "name-row" }, [colorControl, nameInput]),
-      el("p", { class: "muted color-hint" }, "Tap the color circle to make it yours."),
+    el("div", { class: "card", style: "margin-bottom:14px" }, [
+      hubProfileCard({ onUpdate: hub }),
     ]),
     ...sections,
     iosInstallTip(),
