@@ -28,6 +28,7 @@ the game data then flows directly between the two phones.
 | 🔎 **Case Files** | Reveal evidence together, discuss the suspects, then make secret accusations. |
 | 🔐 **Neon Code** | Create a hidden four-symbol sequence, then use exact and near-match clues to crack it in eight guesses. |
 | ⚡ **Flash Duel** | Face each other across one phone, survive the fake signals, and race to tap first when the screen flashes. |
+| 📱 **New Phone Who Dis?** | Reply to a mystery text with the funniest of your 5 absurd cards. Replies reveal anonymously, everyone votes, the best one scores. Edit the cards in `js/data/newphone.js`. |
 
 Installable as a home-screen app (PWA): on iPhone, open in Safari → Share → **Add to Home
 Screen** for a full-screen, offline-capable experience.
