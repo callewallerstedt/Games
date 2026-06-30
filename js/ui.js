@@ -100,10 +100,10 @@ export function toast(msg, ms = 1800) {
   setTimeout(() => t.remove(), ms);
 }
 
-// Bottom-sheet modal. Returns a close() fn.
-export function modal(titleText, bodyNodes) {
+// Modal. Returns a close() fn. Pass { centered: true } for a dialog in the middle of the screen.
+export function modal(titleText, bodyNodes, { centered = false } = {}) {
   const close = () => bg.remove();
-  const sheet = el("div", { class: "modal" }, [
+  const sheet = el("div", { class: centered ? "modal modal-center" : "modal" }, [
     el("div", { class: "topbar" }, [
       el("h2", {}, titleText),
       el("div", { class: "spacer" }),
@@ -111,13 +111,16 @@ export function modal(titleText, bodyNodes) {
     ]),
     ...[].concat(bodyNodes),
   ]);
-  const bg = el("div", { class: "modal-bg", onClick: (e) => { if (e.target === bg) close(); } }, [sheet]);
+  const bg = el("div", {
+    class: centered ? "modal-bg modal-bg-center" : "modal-bg",
+    onClick: (e) => { if (e.target === bg) close(); },
+  }, [sheet]);
   document.body.append(bg);
   return close;
 }
 
 export function rulesModal(game) {
-  return modal(`${game.emoji} ${game.title} — how to play`, el("div", { html: game.rulesHTML }));
+  return modal(`${game.emoji} ${game.title} — how to play`, el("div", { html: game.rulesHTML }), { centered: true });
 }
 
 // Standard in-game header: back button + rules + (optional) connection status.

@@ -295,12 +295,24 @@ p { margin: 0 0 .8em; }
   display: grid; place-items: end center; padding-top: env(safe-area-inset-top);
   animation: fade .2s ease;
 }
+.modal-bg-center {
+  place-items: center center;
+  padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+}
 .modal {
   background: var(--surface); width: 100%; max-width: var(--maxw); border-radius: 26px 26px 0 0;
   padding: 20px 20px calc(24px + env(safe-area-inset-bottom)); max-height: 86dvh; overflow: auto;
   box-shadow: 0 -10px 40px rgba(0,0,0,.28); animation: slideup .24s cubic-bezier(.2,.9,.3,1);
 }
+.modal-center {
+  border-radius: 26px;
+  padding: 20px;
+  max-height: min(86dvh, calc(100dvh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  box-shadow: 0 16px 48px rgba(0,0,0,.28);
+  animation: modal-pop .24s cubic-bezier(.2,.9,.3,1);
+}
 @keyframes slideup { from { transform: translateY(50px); } }
+@keyframes modal-pop { from { transform: scale(.94) translateY(8px); opacity: 0; } }
 .modal h3 { margin-top: 16px; font-size: 1.02rem; }
 .modal ol, .modal ul { padding-left: 1.15em; margin: 0 0 .6em; }
 .modal li { margin-bottom: .4em; }
