@@ -120,10 +120,12 @@ function shotDescription(mode, shot) {
 }
 
 function markerFor(mode, shot) {
-  if (shot === "pending") return "…";
-  if (shot === "miss") return "•";
-  if (shot === "hit") return mode === "target" ? "×" : "!";
-  if (shot === "sunk") return "×";
+  if (shot === "pending") return "⌛";
+  // Shooter view (target): big boom on a hit, faint splash on a miss.
+  // Defender view (own): your own ship on fire when hit, splash when they miss.
+  if (shot === "miss") return mode === "target" ? "💦" : "🌊";
+  if (shot === "hit") return mode === "target" ? "💥" : "🔥";
+  if (shot === "sunk") return "☠️";
   return "";
 }
 
@@ -285,20 +287,23 @@ function placementScreen(ctx, statusEl, onDone) {
 }
 
 function battleLegend() {
+  const item = (emoji, label) => el("div", {}, [el("span", { class: "bs-legend-emoji", "aria-hidden": "true" }, emoji), el("span", {}, label)]);
   return el("div", { class: "bs-legend", "aria-label": "Shot marker legend" }, [
-    el("div", {}, [el("i", { class: "out-hit" }, "×"), el("span", {}, "Your hit")]),
-    el("div", {}, [el("i", { class: "out-miss" }, "•"), el("span", {}, "Your miss")]),
-    el("div", {}, [el("i", { class: "in-hit" }, "!"), el("span", {}, "Enemy hit")]),
-    el("div", {}, [el("i", { class: "in-miss" }, "•"), el("span", {}, "Enemy miss")]),
+    item("💥", "Your hit"),
+    item("💦", "Your miss"),
+    item("🔥", "Enemy hit"),
+    item("🌊", "Enemy miss"),
+    item("☠️", "Sunk"),
   ]);
 }
 
 function actionNotice(action) {
   if (!action) return null;
   const who = action.actor === "you" ? "Your shot" : "Enemy shot";
+  const mark = action.hit ? "💥 hit" : "💦 miss";
   const result = action.sunk
-    ? `${action.hit ? "hit" : "miss"} · ${action.sunk} sunk`
-    : action.hit ? "hit" : "miss";
+    ? `${mark} · ☠️ ${action.sunk} sunk`
+    : mark;
   return el("div", { class: `bs-action ${action.actor === "you" ? "outgoing" : "incoming"}` }, [
     el("span", {}, who),
     el("b", {}, action.coordinate),

@@ -391,6 +391,11 @@ p { margin: 0 0 .8em; }
 .answer-card .who { font-weight: 700; color: var(--text-soft); font-size: .82rem; }
 .answer-card .val { font-size: 1.2rem; font-weight: 800; text-align: right; }
 .answer-card.me { border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); }
+.answer-card.selectable { cursor: pointer; transition: border-color .12s ease, background .12s ease, transform .08s ease; }
+.answer-card.selectable:active { transform: scale(.98); }
+.answer-card.chosen { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px var(--brand); }
+.herd-override { margin: 6px 0 2px; }
 .reveal-anim { animation: pop .42s cubic-bezier(.2,1.3,.4,1) backwards; }
 .reveal-anim:nth-child(2) { animation-delay: .08s; }
 @keyframes pop { from { transform: scale(.7); opacity: 0; } }
@@ -499,7 +504,7 @@ p { margin: 0 0 .8em; }
 .bs-cell {
   appearance: none; aspect-ratio: 1; min-width: 0; border-radius: 5px;
   border: 1px solid rgba(37, 99, 135, .2); background: #d7edfa; color: #17384f;
-  font-family: inherit; font-size: clamp(.62rem, 3.4vw, .95rem); font-weight: 950;
+  font-family: inherit; font-size: clamp(.7rem, 3.8vw, 1.02rem); font-weight: 950;
   cursor: pointer; padding: 0; display: grid; place-items: center; line-height: 1;
   transition: transform .08s ease, background .12s ease, box-shadow .12s ease;
 }
@@ -553,16 +558,12 @@ p { margin: 0 0 .8em; }
 .bs-action b { font-size: 1rem; }
 .bs-action strong { text-transform: uppercase; font-size: .65rem; letter-spacing: .05em; }
 .bs-legend {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px 10px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px 10px;
   margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px;
   background: var(--surface); color: var(--text-soft); font-size: .7rem;
 }
 .bs-legend > div { display: flex; align-items: center; gap: 6px; }
-.bs-legend i { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-style: normal; font-weight: 950; }
-.bs-legend .out-hit { background: #e5484d; color: #fff; }
-.bs-legend .out-miss { background: #f5fbff; border: 1px solid #9ccde9; color: #2976a5; }
-.bs-legend .in-hit { background: #f4a62a; color: #3c2400; }
-.bs-legend .in-miss { background: #f9fcfd; border: 1px solid #adcad9; color: #56798d; }
+.bs-legend-emoji { font-size: 1.05rem; line-height: 1; width: 1.3em; text-align: center; }
 .bs-outcome {
   display: grid; gap: 10px; margin-top: 14px; padding: 14px; border-radius: 17px;
   border: 1px solid #ebc775; background: #fff8e8; text-align: center;
@@ -717,7 +718,7 @@ p { margin: 0 0 .8em; }
 .wave-pin {
   position: absolute; top: 50%; transform: translate(-50%,-50%); width: 34px; height: 34px; border-radius: 50%;
   display: grid; place-items: center; font-size: .72rem; font-weight: 900; color: #fff; border: 3px solid #fff;
-  box-shadow: 0 4px 12px rgba(0,0,0,.22);
+  box-shadow: 0 4px 12px rgba(0,0,0,.22); transition: left .12s ease-out;
 }
 .wave-pin.target { background: #111827; }
 .wave-pin.guess { background: #16a34a; }

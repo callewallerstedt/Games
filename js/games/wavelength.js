@@ -64,8 +64,9 @@ function targetScreen(spectrum, target, cluerName, onDone) {
   ]);
 }
 
-function guessScreen(spectrum, guesserName, onGuess) {
+function guessScreen(spectrum, guesserName, onGuess, onSlide) {
   let value = 50;
+  let lastSent = 0;
   const readout = el("div", { class: "wave-readout" }, "50");
   let preview = scaleView(spectrum, { guesses: [{ name: guesserName, value }] });
   const input = el("input", {
@@ -77,6 +78,8 @@ function guessScreen(spectrum, guesserName, onGuess) {
       const next = scaleView(spectrum, { guesses: [{ name: guesserName, value }] });
       preview.replaceWith(next);
       preview = next;
+      const now = Date.now();
+      if (onSlide && now - lastSent > 70) { lastSent = now; onSlide(value); } // live feed to the clue-giver
     },
   });
   return el("div", { class: "card stack" }, [
@@ -84,7 +87,17 @@ function guessScreen(spectrum, guesserName, onGuess) {
     el("div", { class: "wave-guess-label" }, `${guesserName}'s guess`),
     readout,
     input,
-    button("Lock guess", { big: true, onClick: () => onGuess(value) }),
+    button("Lock guess", { big: true, onClick: () => { onSlide && onSlide(value); onGuess(value); } }),
+  ]);
+}
+
+// What a waiting (non-clue-giver) player sees before/while the clue is given:
+// the spectrum and category, but never the secret target.
+function waitOnClueScreen(spectrum, cluerName) {
+  return el("div", { class: "card stack" }, [
+    el("div", { class: "pill" }, `${cluerName} — clue-giver`),
+    scaleView(spectrum, {}),
+    el("p", { class: "muted center" }, `${cluerName} is thinking of a spoken clue…`),
   ]);
 }
 
@@ -122,11 +135,48 @@ function online(ctx) {
   let spectrum = null;
   let target = 50;
   let guesses = names.map(() => null);
+  let live = names.map(() => null);     // in-progress slider values (cleared each round)
+  let cluerScaleNode = null;            // live scale node on the clue-giver's screen
   const status = connectionPill();
   session.onStatus(status.set);
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
 
+  // Pins for the clue-giver's live watch: each guesser's locked guess, or their
+  // current slider while they're still moving it.
+  const cluerPins = () => names
+    .map((name, i) => (i === cluer ? null : { name, value: guesses[i] != null ? guesses[i] : live[i] }))
+    .filter((pin) => pin && pin.value != null);
+
+  function cluerWatchScreen(pins) {
+    cluerScaleNode = scaleView(spectrum, { target, guesses: pins });
+    screen(el("div", { class: "screen" }, [
+      el("div", { class: "card stack" }, [
+        el("div", { class: "pill" }, "You gave the clue 🤫"),
+        cluerScaleNode,
+        el("p", { class: "muted center" }, "Watch the room slide in — they can't see the target."),
+      ]),
+    ]));
+  }
+  function cluerUpdate(pins) {
+    if (!cluerScaleNode) return;
+    const next = scaleView(spectrum, { target, guesses: pins });
+    cluerScaleNode.replaceWith(next);
+    cluerScaleNode = next;
+  }
+  // Host: relay live positions to whoever is the clue-giver.
+  function pushCluerLive() {
+    if (!session.isHost) return;
+    const pins = cluerPins();
+    if (cluer === session.myIndex) cluerUpdate(pins);
+    else session.sendTo(cluer, "wave_live", { round, pins });
+  }
+  function submitSlide(value) {
+    if (session.isHost) { live[session.myIndex] = value; pushCluerLive(); }
+    else session.send("wave_slider", { round, value });
+  }
+
   function showRole() {
+    cluerScaleNode = null;
     if (session.myIndex === cluer) {
       screen(targetScreen(spectrum, target, names[cluer], () => {
         if (session.isHost) beginGuessing();
@@ -134,7 +184,7 @@ function online(ctx) {
         screen(waiting("Clue sent. Waiting for everyone to guess."));
       }));
     } else {
-      screen(waiting(`${names[cluer]} is choosing a spoken clue.`));
+      screen(waitOnClueScreen(spectrum, names[cluer]));
     }
   }
 
@@ -144,28 +194,30 @@ function online(ctx) {
     spectrum = SPECTRUMS[rand(SPECTRUMS.length)];
     target = rand(101);
     guesses = names.map(() => null);
+    live = names.map(() => null);
     session.send("wave_round", { round, cluer, spectrum });
     if (cluer === 0) showRole();
     else {
       session.sendTo(cluer, "wave_target", { round, cluer, spectrum, target });
-      screen(waiting(`${names[cluer]} is choosing a spoken clue.`));
+      screen(waitOnClueScreen(spectrum, names[cluer]));
     }
   }
 
   function beginGuessing() {
     if (!session.isHost) return;
+    live = names.map(() => null);
     session.send("wave_guess_phase", { round, cluer, spectrum });
-    if (session.myIndex === cluer) screen(waiting("Waiting for everyone's sliders."));
+    if (session.myIndex === cluer) cluerWatchScreen(cluerPins());
     else showGuess();
   }
 
   function showGuess() {
     screen(guessScreen(spectrum, names[session.myIndex], (value) => {
       guesses[session.myIndex] = value;
-      if (session.isHost) checkReveal();
+      if (session.isHost) { pushCluerLive(); checkReveal(); }
       else session.send("wave_guess_value", { round, value });
       screen(waiting("Guess locked. Waiting for the room."));
-    }));
+    }, submitSlide));
   }
 
   function checkReveal() {
@@ -192,6 +244,7 @@ function online(ctx) {
     cluer = message.cluer;
     spectrum = message.spectrum;
     guesses = names.map(() => null);
+    live = names.map(() => null);
     if (session.myIndex !== cluer) showRole();
   });
   session.on("wave_target", (message) => {
@@ -201,11 +254,21 @@ function online(ctx) {
   session.on("wave_guess_phase", (message) => {
     if (session.isHost) return;
     round = message.round; cluer = message.cluer; spectrum = message.spectrum;
-    if (session.myIndex === cluer) screen(waiting("Waiting for everyone's sliders.")); else showGuess();
+    if (session.myIndex === cluer) cluerWatchScreen([]); else showGuess();
+  });
+  session.on("wave_slider", (message) => {
+    if (!session.isHost || message.round !== round || message.from === cluer) return;
+    live[message.from] = clamp(message.value);
+    pushCluerLive();
+  });
+  session.on("wave_live", (message) => {
+    if (message.round !== round || session.myIndex !== cluer) return;
+    cluerUpdate(message.pins || []);
   });
   session.on("wave_guess_value", (message) => {
     if (!session.isHost || message.round !== round || message.from === cluer) return;
     guesses[message.from] = clamp(message.value);
+    pushCluerLive();
     checkReveal();
   });
   session.on("wave_reveal", (message) => { if (!session.isHost) showReveal(message); });

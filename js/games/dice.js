@@ -140,7 +140,7 @@ function onlineGame(ctx) {
           el("p", { class: "muted center" }, `${state.totalDice} dice remain on the table`),
           el("div", { class: "center", style: "font-size:1.5rem;font-weight:800;margin:10px 0" }, bidLabel(candidate)),
           el("div", { class: "counter" }, [
-            el("button", { class: "btn round-btn secondary", disabled: qty <= 1, onClick: () => { qty--; draw(); } }, "−"),
+            el("button", { class: "btn round-btn secondary", disabled: qty <= (bid ? bid.qty : 1), onClick: () => { qty--; draw(); } }, "−"),
             el("span", { class: "num" }, String(qty)),
             el("button", { class: "btn round-btn secondary", disabled: qty >= state.totalDice, onClick: () => { qty++; draw(); } }, "+"),
           ]),
@@ -187,10 +187,15 @@ function onlineGame(ctx) {
   function showReveal(payload) {
     cups = payload.cups;
     if (payload.winner != null) celebrate();
-    const rows = names.map((name, i) => el("div", { class: "card", style: "padding:12px" }, [
-      el("div", { class: "who", style: "font-weight:700;margin-bottom:6px" }, `${name}${i === payload.loser ? " - lost a die" : ""}`),
-      diceRow(payload.dice[i]),
-    ]));
+    const rows = names.map((name, i) => {
+      const out = cups[i] <= 0 && (!payload.dice[i] || payload.dice[i].length === 0);
+      const tag = i === payload.loser ? " — lost a die" : "";
+      if (out) return el("div", { class: "muted center", style: "padding:6px" }, `${name} — out ☠️`);
+      return el("div", { class: "card", style: "padding:12px" }, [
+        el("div", { class: "who", style: "font-weight:700;margin-bottom:6px" }, `${name}${tag}`),
+        diceRow(payload.dice[i]),
+      ]);
+    });
     screen(el("div", { class: "screen" }, [
       el("div", { class: "card center" }, [
         el("h2", {}, payload.winner != null ? `${names[payload.winner]} wins` : payload.bidValid ? "The bid was valid" : "The bluff was caught"),

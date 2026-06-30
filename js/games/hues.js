@@ -45,6 +45,8 @@ const game = {
 const header = (ctx, statusEl) => gameHeader(ctx, game, statusEl);
 
 // Build the colour spectrum. opts: { onPick, pick, target, guess, preview, disabled }
+// Returns the wrap element; the inner grid is reused so highlights can be moved
+// in place (see markGrid) instead of rebuilding the whole grid on every tap.
 function grid(opts = {}) {
   const g = el("div", { class: "hue-grid", style: `grid-template-columns: repeat(${COLS}, 1fr)` });
   for (let r = 0; r < ROWS; r++) {
@@ -57,6 +59,8 @@ function grid(opts = {}) {
       const cell = el("button", {
         class: classes.join(" "),
         style: `background:${cellColor(r, c)}`,
+        "data-r": String(r),
+        "data-c": String(c),
         "aria-label": `row ${r + 1} column ${c + 1}`,
         disabled: !!opts.disabled,
         onClick: opts.onPick ? () => opts.onPick({ r, c }) : undefined,
@@ -65,6 +69,16 @@ function grid(opts = {}) {
     }
   }
   return el("div", { class: "hue-wrap" }, g);
+}
+
+// Move a single highlight class to one cell (or clear it) without re-rendering.
+function markGrid(wrap, cls, cell) {
+  if (!wrap) return;
+  wrap.querySelectorAll(`.hue-cell.${cls}`).forEach((node) => node.classList.remove(cls));
+  if (cell) {
+    const next = wrap.querySelector(`.hue-cell[data-r="${cell.r}"][data-c="${cell.c}"]`);
+    if (next) next.classList.add(cls);
+  }
 }
 
 function clueInput(onDone) {
@@ -112,9 +126,10 @@ function onlineGame(ctx) {
     waitingOpts = opts;
     screen(waitingView({ ...opts, preview: partnerPreview }));
   };
-  const refreshWaiting = () => {
-    if (waitingOpts) showWaiting(waitingOpts);
-  };
+  // The clue-giver watches the guesser explore: move the preview marker on the
+  // existing grid instead of rebuilding the whole screen on every nudge.
+  const liveGrid = () => document.querySelector(".screen .hue-wrap");
+  const refreshWaiting = () => { markGrid(liveGrid(), "preview", partnerPreview); };
   const resetRoundState = () => {
     partnerPreview = null;
     waitingOpts = null;
@@ -144,20 +159,28 @@ function onlineGame(ctx) {
   function showGuess(theClue) {
     waitingOpts = null;
     let pick = null;
-    const sendPreview = (cell) => session.send("hues_preview", { cell });
-    const render2 = () => screen(el("div", { class: "screen" }, [
+    const hint = el("p", { class: "center muted", style: "margin:8px 0 0" }, "Tap a colour to start exploring.");
+    const lockBtn = button("Lock in guess 🎯", { big: true, disabled: true, onClick: () => {
+      if (!pick) return;
+      if (isHost) hostReveal(pick);
+      else {
+        session.send("hues_guess", { cell: pick });
+        showWaiting({ msg: "Checking…", clue: theClue, pick });
+      }
+    } });
+    const gridWrap = grid({ onPick: (cell) => {
+      pick = cell;
+      markGrid(gridWrap, "pick", cell);     // move my highlight in place, no re-render
+      session.send("hues_preview", { cell }); // let the clue-giver watch live
+      hint.textContent = "Tap around — lock in when you're sure.";
+      lockBtn.disabled = false;
+    } });
+    screen(el("div", { class: "screen" }, [
       clueBlock(theClue),
-      grid({ pick, onPick: (cell) => { pick = cell; sendPreview(cell); render2(); } }),
-      el("p", { class: "center muted", style: "margin:8px 0 0" }, pick ? "Tap around — lock in when you're sure." : "Tap a colour to start exploring."),
-      el("div", { class: "footer-actions" }, button("Lock in guess 🎯", { big: true, disabled: !pick, onClick: () => {
-        if (isHost) hostReveal(pick);
-        else {
-          session.send("hues_guess", { cell: pick });
-          showWaiting({ msg: "Checking…", clue: theClue, pick });
-        }
-      } })),
+      gridWrap,
+      hint,
+      el("div", { class: "footer-actions" }, lockBtn),
     ]));
-    render2();
   }
 
   // ---- Reveal ----
@@ -252,12 +275,13 @@ function localGame(ctx) {
     await passDevice(names[guesser], `You're guessing. Clue: "${clue}"`);
     const guess = await new Promise((resolve) => {
       let pick = null;
-      const r2 = () => screen(el("div", { class: "screen" }, [
+      const lockBtn = button("Lock in guess 🎯", { big: true, disabled: true, onClick: () => { if (pick) resolve(pick); } });
+      const gridWrap = grid({ onPick: (cell) => { pick = cell; markGrid(gridWrap, "pick", cell); lockBtn.disabled = false; } });
+      screen(el("div", { class: "screen" }, [
         el("div", { class: "center" }, [el("span", { class: "muted" }, "The clue is"), el("div", { class: "clue-tag", style: "margin:8px 0 16px" }, clue)]),
-        grid({ pick, onPick: (cell) => { pick = cell; r2(); } }),
-        el("div", { class: "footer-actions" }, button("Lock in guess 🎯", { big: true, disabled: !pick, onClick: () => resolve(pick) })),
+        gridWrap,
+        el("div", { class: "footer-actions" }, lockBtn),
       ]));
-      r2();
     });
 
     const pts = pointsFor(distance(target, guess));

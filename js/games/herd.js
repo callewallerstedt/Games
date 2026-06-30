@@ -63,6 +63,9 @@ function onlineGame(ctx) {
   const scores = names.map(() => 0);
   let answers = names.map(() => null);
   let currentQ = "";
+  // Snapshot of cumulative scores before the current round, so the host can
+  // re-decide who matched and we rescore cleanly from the same baseline.
+  let baseScores = scores.slice();
   const status = connectionPill();
   session.onStatus(status.set);
   const screen = (body) => render(el("div", { class: "screen" }, [header(ctx, status.node), body]));
@@ -77,8 +80,23 @@ function onlineGame(ctx) {
     showAnswer(currentQ);
   }
 
+  // Recompute scores from the round baseline given the set of players who count
+  // as "the herd", then broadcast. A herd needs at least 2 people to score.
+  function hostApplyMatch(matchedSet) {
+    if (!session.isHost) return;
+    const valid = matchedSet.size >= 2;
+    const matched = names.map((_, i) => valid && matchedSet.has(i));
+    matched.forEach((isMatched, i) => { scores[i] = baseScores[i] + (isMatched ? 1 : 0); });
+    const payload = { q: currentQ, answers: answers.slice(), scores: scores.slice(), matched, round };
+    session.send("herd_reveal", payload);
+    showReveal(payload);
+  }
+
   function hostTryReveal() {
     if (!session.isHost || answers.some((answer) => answer == null)) return;
+    baseScores = scores.slice();
+    // Auto-detect the largest exact-match group(s) as the starting herd; the
+    // host can then adjust who really matched before scoring.
     const groups = new Map();
     answers.forEach((answer, i) => {
       const key = norm(answer);
@@ -86,12 +104,9 @@ function onlineGame(ctx) {
     });
     const grouped = Array.from(groups.values());
     const largest = Math.max(...grouped.map((group) => group.length));
-    const cows = names.map(() => false);
-    if (largest > 1) grouped.filter((group) => group.length === largest).forEach((group) => group.forEach((i) => scores[i]++));
-    grouped.filter((group) => group.length === 1).forEach((group) => group.forEach((i) => { cows[i] = true; }));
-    const payload = { q: currentQ, answers: answers.slice(), scores: scores.slice(), cows, largest, round };
-    session.send("herd_reveal", payload);
-    showReveal(payload);
+    const matchedSet = new Set();
+    if (largest > 1) grouped.filter((group) => group.length === largest).forEach((group) => group.forEach((i) => matchedSet.add(i)));
+    hostApplyMatch(matchedSet);
   }
 
   function showAnswer(q) {
@@ -117,16 +132,39 @@ function onlineGame(ctx) {
   }
 
   function showReveal(payload) {
-    if (payload.largest > 1) celebrate();
-    const rows = payload.answers.map((answer, i) => el("div", { class: `answer-card reveal-anim ${payload.cows[i] ? "" : "me"}` }, [
-      el("span", { class: "who" }, names[i]),
-      el("span", { class: "val" }, answer),
-    ]));
+    const matched = payload.matched || names.map(() => false);
+    const herdSize = matched.filter(Boolean).length;
+    if (herdSize > 1) celebrate();
+    // Host can retoggle who actually matched (handy when 3+ players phrase the
+    // same idea differently), then rescore.
+    const sel = new Set(matched.map((m, i) => (m ? i : -1)).filter((i) => i >= 0));
+
+    const rows = payload.answers.map((answer, i) => {
+      const card = el("div", {
+        class: `answer-card reveal-anim ${matched[i] ? "me" : ""} ${session.isHost ? "selectable" : ""} ${sel.has(i) ? "chosen" : ""}`.trim(),
+      }, [
+        el("span", { class: "who" }, names[i] + (matched[i] ? "" : " 🐷")),
+        el("span", { class: "val" }, answer),
+      ]);
+      if (session.isHost) {
+        card.onclick = () => { if (sel.has(i)) sel.delete(i); else sel.add(i); card.classList.toggle("chosen"); };
+      }
+      return card;
+    });
+
+    const hostControls = session.isHost
+      ? el("div", { class: "stack herd-override" }, [
+          el("p", { class: "muted center tiny", style: "margin:0" }, "Tap the players who said the same thing, then score the herd."),
+          button("✓ Score the herd", { variant: "secondary", onClick: () => hostApplyMatch(new Set(sel)) }),
+        ])
+      : null;
+
     screen(el("div", { class: "screen" }, [
       el("div", { class: "q-big" }, payload.q),
       el("div", { class: "stack" }, rows),
-      el("div", { class: `verdict ${payload.largest > 1 ? "match" : "nomatch"}` },
-        payload.largest > 1 ? `Largest match: ${payload.largest}` : "Everyone went their own way"),
+      el("div", { class: `verdict ${herdSize > 1 ? "match" : "nomatch"}` },
+        herdSize > 1 ? `🐄 The herd: ${herdSize} matched` : "Everyone went their own way"),
+      hostControls,
       scoreboard(names, payload.scores, { colors: ctx.playerColors }),
       el("div", { class: "footer-actions" }, onlineReadyGate(session, `herd:${payload.round}`, hostNewRound, { label: "Ready for next" })),
     ]));
