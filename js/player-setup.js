@@ -233,6 +233,33 @@ export function renderLobbySettings(game, settings, { editable, onChange, showMa
           : el("span", { class: "setting-value" }, String(settings[def.key])),
       ]));
     }
+    if (def.type === "number") {
+      const clamp = (raw) => {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return settings[def.key] ?? def.default;
+        return Math.min(def.max ?? 999, Math.max(def.min ?? 0, n));
+      };
+      rows.push(el("div", { class: `lobby-setting${editable ? "" : " readonly"}` }, [
+        el("span", { class: "lobby-setting-label" }, def.label),
+        editable
+          ? el("input", {
+            class: "field setting-number-input",
+            type: "number",
+            inputmode: "numeric",
+            min: String(def.min ?? 0),
+            max: String(def.max ?? 999),
+            step: String(def.step ?? 1),
+            value: String(settings[def.key] ?? def.default),
+            oninput: (e) => onChange(def.key, clamp(e.target.value)),
+            onchange: (e) => {
+              const next = clamp(e.target.value);
+              e.target.value = String(next);
+              onChange(def.key, next);
+            },
+          })
+          : el("span", { class: "setting-value" }, `${settings[def.key] ?? def.default}${def.suffix || ""}`),
+      ]));
+    }
     if (def.type === "multiselect") {
       const selected = Array.isArray(settings[def.key]) ? settings[def.key] : [];
       rows.push(el("div", { class: `lobby-setting multiselect${editable ? "" : " readonly"}` }, [

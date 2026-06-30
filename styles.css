@@ -851,6 +851,10 @@ p { margin: 0 0 .8em; }
 .setting-chip { border: 1px solid var(--line); background: var(--surface-2); color: var(--text); border-radius: 6px; padding: 8px 14px; font-weight: 700; cursor: pointer; }
 .setting-chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
 .setting-num { min-width: 28px; text-align: center; font-weight: 800; font-size: 1.1rem; }
+.setting-number-input {
+  width: 5.5rem; min-height: 42px; padding: 8px 10px; text-align: center; font-weight: 800;
+}
+.lobby-setting .setting-number-input { flex: none; }
 .lobby-roster { margin-top: 12px; }
 .lobby-player { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 7px; background: var(--surface-2); border: 1px solid var(--line); }
 .lobby-player.empty { opacity: .55; }

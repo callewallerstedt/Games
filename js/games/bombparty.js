@@ -13,6 +13,23 @@ const SYLLABLES = [
 
 const norm = (s) => (s || "").trim().toLowerCase().replace(/[^a-z]/g, "");
 const randomSyllable = () => SYLLABLES[Math.floor(Math.random() * SYLLABLES.length)];
+const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+
+function fuseConfig(settings) {
+  const timerMode = settings?.timerMode || "Per bomb";
+  return {
+    startSec: clamp(Number(settings?.fuseSeconds) || 20, 1, 120),
+    reduceSec: clamp(Number(settings?.reduceBySeconds) || 0, 0, 60),
+    minSec: 3,
+    timerMode,
+  };
+}
+
+function fuseDurationMs(cfg, { bombRound = 0, wordsThisBomb = 0 } = {}) {
+  let seconds = cfg.startSec - bombRound * cfg.reduceSec;
+  if (cfg.timerMode === "Per word") seconds -= wordsThisBomb * cfg.reduceSec;
+  return Math.max(cfg.minSec, seconds) * 1000;
+}
 
 const game = {
   id: "bombparty",
@@ -24,7 +41,8 @@ const game = {
   maxPlayers: 8,
   modes: ["local", "online"],
   lobbySettings: [
-    { key: "fuseSeconds", label: "Starting fuse", type: "choice", options: [10, 15, 20, 30, 45], default: 20 },
+    { key: "fuseSeconds", label: "Starting fuse (sec)", type: "number", min: 3, max: 120, default: 20 },
+    { key: "reduceBySeconds", label: "Reduce timer by (each bomb)", type: "number", min: 0, max: 30, default: 1 },
     { key: "timerMode", label: "Timer mode", type: "choice", options: ["Per bomb", "Per word"], default: "Per bomb" },
   ],
   estMinutes: 8,
@@ -36,7 +54,8 @@ const game = {
       <li>A valid word passes the bomb to the next player with a fresh syllable.</li>
       <li>If the bomb explodes on you, you lose a life.</li>
     </ol>
-    <p><b>Per bomb</b> keeps one fuse burning across every handoff. <b>Per word</b> resets the fuse, but each successful word removes one second down to a five-second minimum.</p>`,
+    <p><b>Per bomb</b> keeps one fuse burning across every handoff. <b>Per word</b> gives each player a fresh countdown.</p>
+    <p>Each new bomb can start with less time if you set <b>Reduce timer by</b>. In per-word mode, that same amount is also shaved off after every valid word.</p>`,
   mount(ctx) { ctx.mode === "online" ? online(ctx) : local(ctx); },
 };
 
@@ -123,8 +142,7 @@ function online(ctx) {
   const isHost = session.isHost;
   const myIdx = session.myIndex;
   const names = session.players;
-  const fuseMs = (Number(session.settings.fuseSeconds) || 20) * 1000;
-  const timerMode = session.settings.timerMode || "Per bomb";
+  const cfg = fuseConfig(session.settings);
   const status = connectionPill();
   session.onStatus(status.set);
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
@@ -138,6 +156,7 @@ function online(ctx) {
   let timerToken = 0;
   let bombDeadline = 0;
   let wordCount = 0;
+  let bombRound = 0;
   setGameCleanup(() => { timerToken++; phase = "disposed"; });
 
   function nextAlive(from) {
@@ -150,7 +169,9 @@ function online(ctx) {
     used = new Set();
     wordCount = 0;
     active = startActive;
-    bombDeadline = timerMode === "Per bomb" ? Date.now() + fuseMs : 0;
+    bombDeadline = cfg.timerMode === "Per bomb"
+      ? Date.now() + fuseDurationMs(cfg, { bombRound })
+      : 0;
     startTurn(active);
   }
 
@@ -159,9 +180,9 @@ function online(ctx) {
     phase = "turn";
     active = lives[startActive] > 0 ? startActive : nextAlive(startActive);
     syllable = randomSyllable();
-    deadline = timerMode === "Per bomb"
+    deadline = cfg.timerMode === "Per bomb"
       ? bombDeadline
-      : Date.now() + Math.max(5000, fuseMs - wordCount * 1000);
+      : Date.now() + fuseDurationMs(cfg, { bombRound, wordsThisBomb: wordCount });
     round++;
     timerToken++;
     const token = timerToken;
@@ -221,8 +242,10 @@ function online(ctx) {
       const winner = alive[0] ?? 0;
       lives = names.map(() => 3);
       active = (winner + 1) % names.length;
+      bombRound = 0;
     } else {
       active = nextAlive(active);
+      bombRound++;
     }
     startBomb(active);
   }
@@ -256,8 +279,7 @@ function online(ctx) {
 
 function local(ctx) {
   const names = ctx.players;
-  const fuseMs = (Number(ctx.settings?.fuseSeconds) || 20) * 1000;
-  const timerMode = ctx.settings?.timerMode || "Per bomb";
+  const cfg = fuseConfig(ctx.settings || ctx.session?.settings);
   const statusEl = pill(`${names.length} players`);
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, statusEl), body]));
   let lives = names.map(() => 3);
@@ -268,6 +290,7 @@ function local(ctx) {
   let timer = null;
   let bombDeadline = 0;
   let wordCount = 0;
+  let bombRound = 0;
 
   function nextAlive(from) {
     let i = from;
@@ -285,13 +308,15 @@ function local(ctx) {
     active = startActive;
     used = new Set();
     wordCount = 0;
-    bombDeadline = timerMode === "Per bomb" ? Date.now() + fuseMs : 0;
+    bombDeadline = cfg.timerMode === "Per bomb"
+      ? Date.now() + fuseDurationMs(cfg, { bombRound })
+      : 0;
     showHandoff();
   }
 
   function showHandoff() {
     stopTimer();
-    const timerNode = timerMode === "Per bomb" ? bombTimer(bombDeadline, explode) : null;
+    const timerNode = cfg.timerMode === "Per bomb" ? bombTimer(bombDeadline, explode) : null;
     timer = timerNode;
     screen(el("div", { class: "screen bomb-handoff-screen" }, [
       livesBar(names, lives),
@@ -301,16 +326,16 @@ function local(ctx) {
         el("span", {}, "Tap when you have the bomb"),
       ]),
       timerNode,
-      el("p", { class: "muted center tiny" }, timerMode === "Per bomb" ? "The fuse keeps burning while you pass." : "Your word timer starts when you tap."),
+      el("p", { class: "muted center tiny" }, cfg.timerMode === "Per bomb" ? "The fuse keeps burning while you pass." : "Your word timer starts when you tap."),
     ]));
   }
 
   function beginTurn(error = "") {
     stopTimer();
     syllable = randomSyllable();
-    deadline = timerMode === "Per bomb"
+    deadline = cfg.timerMode === "Per bomb"
       ? bombDeadline
-      : Date.now() + Math.max(5000, fuseMs - wordCount * 1000);
+      : Date.now() + fuseDurationMs(cfg, { bombRound, wordsThisBomb: wordCount });
     showWordInput(error);
   }
 
@@ -345,8 +370,8 @@ function local(ctx) {
     const loser = active;
     const alive = lives.map((life, i) => life > 0 ? i : -1).filter((i) => i >= 0);
     const next = alive.length <= 1
-      ? localReadyGate(names, () => { lives = names.map(() => 3); startBomb((loser + 1) % names.length); }, { label: "Rematch" })
-      : localReadyGate(names, () => startBomb(nextAlive(active)), { label: "Next bomb" });
+      ? localReadyGate(names, () => { lives = names.map(() => 3); bombRound = 0; startBomb((loser + 1) % names.length); }, { label: "Rematch" })
+      : localReadyGate(names, () => { bombRound++; startBomb(nextAlive(active)); }, { label: "Next bomb" });
     screen(boomScreen(names, lives, loser, next));
   }
   startBomb(0);
