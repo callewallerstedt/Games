@@ -1,5 +1,5 @@
 // Router + home hub + lobby (mode choice, P2P host/guest handshake, local setup).
-import { el, render, topbar, button, connectionPill, toast, rulesModal, registerSW, iosInstallTip, applyTheme, themePicker, modal, PLAYER_COLORS } from "./ui.js";
+import { el, render, topbar, button, connectionPill, toast, rulesModal, registerSW, iosInstallTip, applyTheme, themePicker, modal, PLAYER_COLORS, normalizePlayerColor, setPlayerColors } from "./ui.js";
 import { GAMES, getGame } from "./games/registry.js";
 import { hostRoom, joinRoom } from "./net.js";
 import { onlineSession, localSession } from "./session.js";
@@ -12,6 +12,51 @@ const go = (hash) => { if (location.hash === hash) router(); else location.hash 
 const home = () => go("#/");
 const rememberedName = () => localStorage.getItem("together_name") || "";
 const saveName = (n) => { try { localStorage.setItem("together_name", n); } catch {} };
+const rememberedColor = () => normalizePlayerColor(localStorage.getItem("together_color"), PLAYER_COLORS[0]);
+const saveColor = (color) => { try { localStorage.setItem("together_color", normalizePlayerColor(color)); } catch {} };
+
+function playerColorControl(label, initial, onChange) {
+  let value = normalizePlayerColor(initial);
+  const trigger = el("button", {
+    class: "player-color-btn",
+    type: "button",
+    style: `--player-color:${value}`,
+    "aria-label": `Choose color for ${label()}`,
+  }, el("span", { "aria-hidden": "true" }));
+
+  const apply = (next) => {
+    value = normalizePlayerColor(next, value);
+    trigger.style.setProperty("--player-color", value);
+    trigger.setAttribute("aria-label", `Choose color for ${label()}`);
+    onChange(value);
+  };
+
+  trigger.addEventListener("click", () => {
+    let close;
+    const custom = el("input", {
+      class: "custom-color-input",
+      type: "color",
+      value,
+      "aria-label": "Custom player color",
+      oninput: (event) => apply(event.target.value),
+    });
+    const swatches = el("div", { class: "player-color-grid" }, PLAYER_COLORS.map((color, i) =>
+      el("button", {
+        class: "player-color-swatch",
+        type: "button",
+        style: `--player-color:${color}`,
+        "aria-label": `Color option ${i + 1}`,
+        onClick: () => { apply(color); close(); },
+      })));
+    close = modal(`Player color · ${label()}`, el("div", { class: "stack" }, [
+      el("p", { class: "muted" }, "Pick a preset or choose any custom color."),
+      swatches,
+      el("label", { class: "custom-color-row" }, [el("span", {}, "Custom color"), custom]),
+      button("Done", { onClick: () => close() }),
+    ]));
+  });
+  return trigger;
+}
 
 function cleanup() {
   if (active && active.destroy) { try { active.destroy(); } catch {} }
@@ -40,6 +85,7 @@ registerSW();
 
 /* ---------------- Home hub ---------------- */
 function hub() {
+  let myColor = rememberedColor();
   const nameInput = el("input", {
     class: "field",
     placeholder: "Your name",
@@ -49,6 +95,10 @@ function hub() {
     style: "text-align:left",
     oninput: (e) => saveName(e.target.value.trim()),
     onchange: (e) => saveName(e.target.value.trim()),
+  });
+  const colorControl = playerColorControl(() => nameInput.value.trim() || "you", myColor, (color) => {
+    myColor = color;
+    saveColor(color);
   });
 
   const scanBtn = el("button", {
@@ -82,7 +132,8 @@ function hub() {
     ]),
     el("div", { class: "card stack", style: "margin-bottom:14px" }, [
       el("p", { class: "muted", style: "margin:0 0 8px; font-size:.9rem" }, "Your name (saved on this device)"),
-      el("div", { class: "name-row" }, [el("span", { style: "width:28px;text-align:center" }, "👤"), nameInput]),
+      el("div", { class: "name-row" }, [colorControl, nameInput]),
+      el("p", { class: "muted color-hint" }, "Tap the color circle to make it yours."),
     ]),
     el("div", { class: "game-grid" }, cards),
     iosInstallTip(),
@@ -93,36 +144,42 @@ function hub() {
 
 /* ---------------- Game lobby (choose how to play) ---------------- */
 function gameLobby(g) {
-  render([
+  render(el("div", { class: "screen game-lobby-screen" }, [
     topbar({ onBack: home, right: el("button", { class: "iconbtn", onClick: () => rulesModal(g) }, "?") }),
-    el("div", { class: "card", style: "text-align:center" }, [
-      el("div", { style: "font-size:3rem" }, g.emoji),
-      el("h1", {}, g.title),
-      el("p", { class: "muted" }, g.blurb),
-      el("button", { class: "btn ghost", onClick: () => rulesModal(g) }, "How to play"),
-    ]),
-    el("div", { class: "stack", style: "margin-top:18px" }, [
+    el("div", { class: "game-stage" }, [
+      el("div", { class: "card", style: "text-align:center" }, [
+        el("div", { style: "font-size:3rem" }, g.emoji),
+        el("h1", {}, g.title),
+        el("p", { class: "muted" }, g.blurb),
+        el("button", { class: "btn ghost", onClick: () => rulesModal(g) }, "How to play"),
+      ]),
+      el("div", { class: "stack", style: "margin-top:18px" }, [
+        g.modes.includes("online")
+          ? button(["📱📱  ", "Two phones"], { variant: "accent", big: true, onClick: () => hostFlow(g) })
+          : null,
+        g.modes.includes("local")
+          ? button(["📱  ", g.localLabel || "One phone (pass it)"], { variant: "secondary", big: true, onClick: () => localSetup(g) })
+          : null,
+      ]),
       g.modes.includes("online")
-        ? button(["📱📱  ", "Two phones"], { variant: "accent", big: true, onClick: () => hostFlow(g) })
-        : null,
-      g.modes.includes("local")
-        ? button(["📱  ", "One phone (pass it)"], { variant: "secondary", big: true, onClick: () => localSetup(g) })
+        ? el("p", { class: "muted center", style: "margin-top:12px; font-size:.85rem" },
+            "Two phones: your partner scans a QR or opens a link to join.")
         : null,
     ]),
-    el("p", { class: "muted center", style: "margin-top:12px; font-size:.85rem" },
-      "Two phones: your partner scans a QR or opens a link to join."),
-  ]);
+  ]));
 }
 
 /* ---------------- Online: HOST ---------------- */
 function hostFlow(g) {
   // Step 1: name
-  askName(g, "What's your name?", (myName) => {
+  askName(g, "What's your name?", (myName, myColor) => {
     saveName(myName);
+    saveColor(myColor);
     // Step 2: create room
     const transport = hostRoom();
     active = transport;
     let partnerName = null;
+    let partnerColor = PLAYER_COLORS[1];
     let started = false;
     let joinUrl = null;
 
@@ -133,7 +190,8 @@ function hostFlow(g) {
     transport.onData((msg) => {
       if (!msg || msg.t !== "hello") return;
       partnerName = msg.name || "Partner";
-      transport.send({ t: "welcome", name: myName });
+      partnerColor = normalizePlayerColor(msg.color, PLAYER_COLORS[1]);
+      transport.send({ t: "welcome", name: myName, color: myColor });
       if (!started) { renderWaiting(); return; }
       // A guest (re)joined mid-game — replay start + the current screen.
       transport.send({ t: "start" });
@@ -171,7 +229,7 @@ function hostFlow(g) {
             onClick: () => {
               started = true;
               transport.send({ t: "start" });
-              setTimeout(() => startOnline(g, transport, { isHost: true, myName, partnerName, joinUrl }), 250);
+              setTimeout(() => startOnline(g, transport, { isHost: true, myName, partnerName, myColor, partnerColor, joinUrl }), 250);
             },
           })),
       ]);
@@ -198,11 +256,13 @@ function hostFlow(g) {
 function joinFlow(gameId, peerId) {
   const g = getGame(gameId);
   if (!g) return home();
-  askName(g, `Join ${g.title}`, (myName) => {
+  askName(g, `Join ${g.title}`, (myName, myColor) => {
     saveName(myName);
+    saveColor(myColor);
     const transport = joinRoom(peerId);
     active = transport;
     let partnerName = null;
+    let partnerColor = PLAYER_COLORS[0];
     let started = false;
     const status = connectionPill();
     status.set("reconnecting");
@@ -216,7 +276,7 @@ function joinFlow(gameId, peerId) {
     transport.onStatus((s) => {
       status.set(s);
       // Re-introduce ourselves on every (re)connect so the host can resync us.
-      if (s === "connected") transport.send({ t: "hello", name: myName });
+      if (s === "connected") transport.send({ t: "hello", name: myName, color: myColor });
       if (s === "closed") {
         render([
           topbar({ onBack: home }),
@@ -231,8 +291,8 @@ function joinFlow(gameId, peerId) {
 
     transport.onData((msg) => {
       if (!msg || started) return;
-      if (msg.t === "welcome") { partnerName = msg.name || "Host"; showStatus(`Connected to ${partnerName}. Waiting for them to start…`); }
-      if (msg.t === "start") { started = true; startOnline(g, transport, { isHost: false, myName, partnerName: partnerName || "Host", joinUrl: location.href }); }
+      if (msg.t === "welcome") { partnerName = msg.name || "Host"; partnerColor = normalizePlayerColor(msg.color, PLAYER_COLORS[0]); showStatus(`Connected to ${partnerName}. Waiting for them to start…`); }
+      if (msg.t === "start") { started = true; startOnline(g, transport, { isHost: false, myName, partnerName: partnerName || "Host", myColor, partnerColor, joinUrl: location.href }); }
     });
 
     showStatus("Connecting to the host…");
@@ -241,8 +301,9 @@ function joinFlow(gameId, peerId) {
 
 function startOnline(g, transport, opts) {
   const session = onlineSession(transport, opts);
+  setPlayerColors(session.players, session.playerColors);
   const reconnectInfo = () => reconnectSheet(session);
-  g.mount({ mode: "online", isHost: opts.isHost, session, players: session.players, exit: home, reconnectInfo });
+  g.mount({ mode: "online", isHost: opts.isHost, session, players: session.players, playerColors: session.playerColors, exit: home, reconnectInfo });
 }
 
 // Tap the connection pill mid-game to re-show the rejoin code / status.
@@ -265,39 +326,23 @@ function localSetup(g) {
   const min = g.minPlayers;
   let count = Math.max(min, 2);
   const names = [];
-  const colors = PLAYER_COLORS.slice();
+  const colors = [];
   for (let i = 0; i < max; i++) names[i] = `Player ${i + 1}`;
+  for (let i = 0; i < max; i++) colors[i] = PLAYER_COLORS[i % PLAYER_COLORS.length];
   if (rememberedName()) names[0] = rememberedName();
-
-  function colorSwatches(playerIdx) {
-    return el("div", { class: "color-swatches", role: "group", "aria-label": `Color for player ${playerIdx + 1}` },
-      PLAYER_COLORS.map((hex) =>
-        el("button", {
-          type: "button",
-          class: `color-swatch ${colors[playerIdx] === hex ? "on" : ""}`,
-          style: `background:${hex}`,
-          "aria-label": hex,
-          "aria-pressed": colors[playerIdx] === hex ? "true" : "false",
-          onClick: () => {
-            const other = colors.indexOf(hex);
-            if (other >= 0 && other !== playerIdx) colors[other] = colors[playerIdx];
-            colors[playerIdx] = hex;
-            draw();
-          },
-        }),
-      ),
-    );
-  }
+  colors[0] = rememberedColor();
 
   function draw() {
     const inputs = [];
     for (let i = 0; i < count; i++) {
       const input = el("input", { class: "field", value: names[i], maxlength: "16",
+        "aria-label": `Player ${i + 1} name`,
         oninput: (e) => { names[i] = e.target.value; } });
-      const row = g.pickColors
-        ? [colorSwatches(i), input]
-        : [el("span", { style: "width:28px;text-align:center" }, ["👤"]), input];
-      inputs.push(el("div", { class: "name-row" }, row));
+      const colorControl = playerColorControl(() => (names[i] || `Player ${i + 1}`).trim(), colors[i], (color) => {
+        colors[i] = color;
+        if (i === 0) saveColor(color);
+      });
+      inputs.push(el("div", { class: "name-row player-name-row" }, [colorControl, input]));
     }
     const counter = max > min
       ? el("div", { class: "card" }, [
@@ -312,28 +357,21 @@ function localSetup(g) {
 
     render([
       topbar({ onBack: () => go(`#/g/${g.id}`), right: el("button", { class: "iconbtn", onClick: () => rulesModal(g) }, "?") }),
-      el("div", { class: "hero" }, [el("h1", {}, `${g.emoji} ${g.title}`), el("div", { class: "tag" }, "One phone — pass it around.")]),
+      el("div", { class: "hero" }, [el("h1", {}, `${g.emoji} ${g.title}`), el("div", { class: "tag" }, g.localSetupTag || "One phone — pass it around.")]),
       counter,
-      el("div", { class: "card stack" }, [
-        el("p", { class: "muted center" }, g.pickColors ? "Player names & colors" : "Player names"),
-        ...inputs,
-      ]),
+      el("div", { class: "card stack" }, [el("p", { class: "muted center" }, "Player names & colors"), ...inputs]),
       el("div", { class: "footer-actions" },
         button("Start →", { big: true, onClick: () => {
           const finalNames = names.slice(0, count).map((n, i) => {
             const trimmed = (n || "").trim();
             return trimmed || `Player ${i + 1}`;
           });
+          const finalColors = colors.slice(0, count).map((color, i) => normalizePlayerColor(color, PLAYER_COLORS[i % PLAYER_COLORS.length]));
           saveName(finalNames[0]);
-          const session = localSession(finalNames);
-          g.mount({
-            mode: "local",
-            isHost: true,
-            session,
-            players: finalNames,
-            playerColors: colors.slice(0, count),
-            exit: home,
-          });
+          saveColor(finalColors[0]);
+          setPlayerColors(finalNames, finalColors);
+          const session = localSession(finalNames, finalColors);
+          g.mount({ mode: "local", isHost: true, session, players: finalNames, playerColors: finalColors, exit: home });
         } })),
     ]);
   }
@@ -342,15 +380,23 @@ function localSetup(g) {
 
 /* ---------------- Shared: name prompt ---------------- */
 function askName(g, prompt, next) {
+  let color = rememberedColor();
   const input = el("input", { class: "field", placeholder: "Your name", value: rememberedName(), maxlength: "16", enterkeyhint: "go" });
-  const submit = () => { const v = (input.value || "").trim() || "You"; next(v); };
+  const colorControl = playerColorControl(() => input.value.trim() || "you", color, (nextColor) => { color = nextColor; });
+  const submit = () => { const v = (input.value || "").trim() || "You"; next(v, color); };
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
   setTimeout(() => input.focus(), 50);
-  render([
+  render(el("div", { class: "screen name-screen" }, [
     topbar({ onBack: home }),
-    el("div", { class: "hero" }, [el("h1", {}, `${g.emoji} ${g.title}`), el("div", { class: "tag" }, prompt)]),
-    el("div", { class: "card stack" }, [input, button("Continue →", { big: true, onClick: submit })]),
-  ]);
+    el("div", { class: "game-stage compact" }, [
+      el("div", { class: "hero" }, [el("h1", {}, `${g.emoji} ${g.title}`), el("div", { class: "tag" }, prompt)]),
+      el("div", { class: "card stack" }, [
+        el("div", { class: "name-row" }, [colorControl, input]),
+        el("p", { class: "muted color-hint" }, "Choose the color your partner will see."),
+        button("Continue →", { big: true, onClick: submit }),
+      ]),
+    ]),
+  ]));
 }
 
 /* ---------------- utils ---------------- */

@@ -72,7 +72,7 @@ function findNewTriangles(edgeKeys, a, b, claimed) {
 function local(ctx) {
   const names = ctx.players;
   const n = names.length;
-  const colors = (ctx.playerColors || PLAYER_COLORS).slice(0, n);
+  const colors = Array.from({ length: n }, (_, i) => ctx.playerColors?.[i] || PLAYER_COLORS[i % PLAYER_COLORS.length]);
   let turn = 0;
   const scores = names.map(() => 0);
   const edges = new Map();

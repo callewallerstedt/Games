@@ -16,8 +16,10 @@ import guess from "./guess.js";
 import truefalse from "./truefalse.js";
 import triangles from "./triangles.js";
 import crime from "./crime.js";
+import neoncode from "./neoncode.js";
+import flashduel from "./flashduel.js";
 
-export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, battleship, dice, tapple, guess, truefalse, triangles, crime];
+export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, battleship, dice, tapple, guess, truefalse, triangles, crime, neoncode, flashduel];
 
 export function getGame(id) {
   return GAMES.find((g) => g.id === id) || null;

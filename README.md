@@ -26,6 +26,8 @@ the game data then flows directly between the two phones.
 | 🤯 **Crazy True or False** | Make a secret call on wild facts, reveal the explanation, and score correct answers. |
 | 📐 **Triangle Lines** | Connect neighboring dots, claim completed triangles, and take another turn when you score. |
 | 🔎 **Case Files** | Reveal evidence together, discuss the suspects, then make secret accusations. |
+| 🔐 **Neon Code** | Create a hidden four-symbol sequence, then use exact and near-match clues to crack it in eight guesses. |
+| ⚡ **Flash Duel** | Face each other across one phone, survive the fake signals, and race to tap first when the screen flashes. |
 
 Installable as a home-screen app (PWA): on iPhone, open in Safari → Share → **Add to Home
 Screen** for a full-screen, offline-capable experience.

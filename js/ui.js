@@ -22,6 +22,24 @@ export const $app = () => document.getElementById("app");
 
 export function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
 
+export const PLAYER_COLORS = [
+  "#8b5cf6", "#ec4899", "#ef4444", "#f97316",
+  "#eab308", "#22c55e", "#14b8a6", "#06b6d4",
+  "#3b82f6", "#6366f1", "#a855f7", "#64748b",
+];
+
+const activePlayerColors = new Map();
+export function normalizePlayerColor(color, fallback = PLAYER_COLORS[0]) {
+  return /^#[0-9a-f]{6}$/i.test(color || "") ? color.toLowerCase() : fallback;
+}
+export function setPlayerColors(names = [], colors = []) {
+  activePlayerColors.clear();
+  names.forEach((name, i) => activePlayerColors.set(name, normalizePlayerColor(colors[i], PLAYER_COLORS[i % PLAYER_COLORS.length])));
+}
+export function playerColor(name, fallback = PLAYER_COLORS[0]) {
+  return activePlayerColors.get(name) || fallback;
+}
+
 // Render a full screen into #app. `content` is a node or array of nodes.
 export function render(content) {
   const app = clear($app());
@@ -143,7 +161,8 @@ export function meter(frac) {
 // "Hand the phone to <name>" overlay. Resolves when they tap Ready.
 export function passDevice(name, subtitle) {
   return new Promise((resolve) => {
-    const overlay = el("div", { class: "pass" }, [
+    const color = playerColor(name);
+    const overlay = el("div", { class: "pass", style: `--player-color:${color}` }, [
       el("div", { class: "hand" }, "🤝"),
       el("div", {}, "Pass the phone to"),
       el("div", { class: "who" }, name),
@@ -156,14 +175,13 @@ export function passDevice(name, subtitle) {
   });
 }
 
-export const PLAYER_COLORS = ["#6c5ce7", "#ff5e98", "#14b88a", "#f0a13b"];
-
 export function scoreChip(n, label, opts = {}) {
-  const { active, color } = opts;
-  const style = active && color ? `--chip-color:${color}` : undefined;
+  const active = typeof opts === "object" && !!opts.active;
+  const rawColor = typeof opts === "string" ? opts : opts?.color;
+  const resolvedColor = normalizePlayerColor(rawColor || playerColor(label));
   return el("div", {
-    class: `score-chip ${active ? "active" : ""}`.trim(),
-    style,
+    class: `score-chip player-colored ${active ? "active" : ""}`.trim(),
+    style: `--player-color:${resolvedColor};--chip-color:${resolvedColor}`,
   }, [el("span", { class: "n" }, String(n)), el("span", { class: "l" }, label)]);
 }
 
@@ -220,6 +238,11 @@ export function applyTheme(t) {
   t = t || getTheme();
   if (t === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", t);
+  document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
+    if (t === "cute") meta.setAttribute("content", "#ffe0ef");
+    else if (t === "dark") meta.setAttribute("content", "#17142b");
+    else meta.setAttribute("content", meta.media?.includes("dark") ? "#17142b" : "#eee9ff");
+  });
   try { localStorage.setItem("together_theme", t); } catch {}
 }
 // Theme picker sheet. onChange called after applying.
