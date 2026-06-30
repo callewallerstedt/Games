@@ -1,5 +1,5 @@
 // "Case Files" — cooperative detective stories; uncover clues, then accuse.
-import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic, localReadyGate } from "../ui.js";
 import { CRIME_CASES } from "../data/crime-cases.js";
 
 const game = {
@@ -169,7 +169,7 @@ function local(ctx) {
       el("h3", { class: "center", style: "margin:16px 0 8px;font-size:.95rem" }, "Accusations"),
       el("div", { class: "stack" }, rows),
       el("div", { class: "scorebar" }, names.map((n, i) => scoreChip(scores[i], n))),
-      el("div", { class: "footer-actions" }, button("Next case →", { big: true, onClick: playCase })),
+      el("div", { class: "footer-actions" }, localReadyGate(names, playCase, { label: "ready" })),
     ]));
     haptic(12);
   }

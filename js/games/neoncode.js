@@ -1,6 +1,6 @@
 // "Neon Code" — a competitive code-making and deduction duel.
 
-import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, celebrate, haptic } from "../ui.js";
+import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, celebrate, haptic, onlineReadyGate, localReadyGate } from "../ui.js";
 
 const CODE_LENGTH = 4;
 const MAX_ATTEMPTS = 8;
@@ -173,6 +173,32 @@ function resultView(names, maker, breaker, secret, history, scores, onNext) {
   ]);
 }
 
+function ownCodeCard(secret, history) {
+  return el("div", { class: "card nc-reveal" }, [
+    el("div", { class: "tiny muted center" }, "Your secret code"),
+    slots(secret),
+    history.length ? el("div", { class: "tiny muted center", style: "margin-top:8px" }, "Guesses against it") : null,
+    history.length ? historyBoard(history) : null,
+  ]);
+}
+
+function duelResultView(names, secrets, histories, scores, onNext, readyNode) {
+  const solved = histories.map((h) => h.at(-1)?.exact === CODE_LENGTH);
+  if (solved.some(Boolean)) celebrate();
+  return el("div", { class: "screen" }, [
+    el("div", { class: "verdict match" }, "Round complete"),
+    el("div", { class: "nc-duel-results" }, names.map((name, i) => el("div", { class: "card nc-reveal" }, [
+      el("div", { class: "tiny muted center" }, `${name}'s code`),
+      slots(secrets[i]),
+      el("div", { class: `verdict ${solved[i] ? "match" : "nomatch"}`, style: "margin-top:10px" },
+        solved[i] ? `Cracked in ${histories[i].length}` : "Code survived"),
+      historyBoard(histories[i]),
+    ]))),
+    el("div", { class: "scorebar" }, names.map((name, i) => scoreChip(scores[i], name))),
+    el("div", { class: "footer-actions" }, readyNode || localReadyGate(names, onNext, { label: "ready" })),
+  ]);
+}
+
 function local(ctx) {
   const names = ctx.players;
   const scores = [0, 0];
@@ -181,30 +207,42 @@ function local(ctx) {
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, statusEl), body]));
 
   async function playRound() {
-    const maker = round % 2;
-    const breaker = 1 - maker;
-    await passDevice(names[maker], "Create a secret neon code");
-    const secret = await new Promise((resolve) => composer(screen, `${names[maker]}, build the code`, resolve));
-    await passDevice(names[breaker], `Crack ${names[maker]}'s hidden code`);
-    const history = [];
-
-    function takeGuess() {
-      guessComposer(screen, `${names[breaker]}, crack the pattern`, history, (guess) => {
-        const feedback = scoreGuess(secret, guess);
-        history.push({ guess, ...feedback });
-        const solved = feedback.exact === CODE_LENGTH;
-        const done = solved || history.length >= MAX_ATTEMPTS;
-        if (done) {
-          if (solved) scores[breaker] += MAX_ATTEMPTS - history.length + 1;
-          else scores[maker] += 3;
-          screen(resultView(names, maker, breaker, secret, history, scores, () => { round++; playRound(); }));
-        } else {
-          haptic(feedback.exact ? [8, 18, 8] : 8);
-          takeGuess();
-        }
-      });
+    const secrets = [null, null];
+    const histories = [[], []]; // history[i] = guesses against player i's code
+    const done = [false, false];
+    for (let i = 0; i < 2; i++) {
+      await passDevice(names[i], "Create your secret neon code");
+      secrets[i] = await new Promise((resolve) => composer(screen, `${names[i]}, build your code`, resolve));
     }
-    takeGuess();
+
+    let turn = round % 2;
+    async function takeTurn() {
+      if (done[0] && done[1]) {
+        screen(duelResultView(names, secrets, histories, scores, () => { round++; playRound(); }));
+        return;
+      }
+      const breaker = turn % 2;
+      const owner = 1 - breaker;
+      if (done[owner]) { turn++; takeTurn(); return; }
+      await passDevice(names[breaker], `Crack ${names[owner]}'s code`);
+      const guess = await new Promise((resolve) => {
+        const renderGuess = (body) => screen(el("div", { class: "screen" }, [ownCodeCard(secrets[breaker], histories[breaker]), body]));
+        guessComposer(renderGuess, `${names[breaker]}, crack the pattern`, histories[owner], resolve);
+      });
+      const feedback = scoreGuess(secrets[owner], guess);
+      histories[owner].push({ guess, ...feedback });
+      const solved = feedback.exact === CODE_LENGTH;
+      done[owner] = solved || histories[owner].length >= MAX_ATTEMPTS;
+      if (done[owner]) {
+        if (solved) scores[breaker] += MAX_ATTEMPTS - histories[owner].length + 1;
+        else scores[owner] += 3;
+      } else {
+        haptic(feedback.exact ? [8, 18, 8] : 8);
+      }
+      turn++;
+      takeTurn();
+    }
+    takeTurn();
   }
 
   playRound();
@@ -220,46 +258,118 @@ function online(ctx) {
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
 
   let round = 0;
+  let turn = 0;
   let scores = [0, 0];
-  let secret = null;
-  let history = [];
+  let secrets = [null, null];
+  let histories = [[], []]; // history[i] = guesses against player i's code
+  let done = [false, false];
+  let readySecrets = [false, false];
+  let resultShown = false;
 
-  const makerIdx = () => round % 2;
-  const breakerIdx = () => 1 - makerIdx();
+  const ownerForTurn = () => 1 - (turn % 2);
+  const breakerForTurn = () => turn % 2;
 
   function beginRound() {
-    secret = null;
-    history = [];
-    if (myIdx === makerIdx()) {
-      composer(screen, "Build a code your partner cannot crack", (code) => {
-        secret = code;
-        session.send("nc_ready", { round });
-        screen(waitingCard("maker", `${names[breakerIdx()]} is studying your code`, history));
-      });
-    } else {
-      screen(waitingCard("breaker", `${names[makerIdx()]} is building the code`, history));
-    }
-  }
-
-  function showBreakerTurn() {
-    guessComposer(screen, `Crack ${names[makerIdx()]}'s pattern`, history, (guess) => {
-      session.send("nc_guess", { round, guess });
-      screen(waitingCard("breaker", "Guess sent", history));
+    turn = round % 2;
+    secrets = [null, null];
+    histories = [[], []];
+    done = [false, false];
+    readySecrets = [false, false];
+    resultShown = false;
+    composer(screen, "Build your secret code", (code) => {
+      secrets[myIdx] = code;
+      readySecrets[myIdx] = true;
+      session.send("nc_secret_ready", { round, player: myIdx });
+      if (isHost) maybeStartBreaking();
+      screen(waitingCard("maker", `${names[1 - myIdx]} is locking their code`, []));
     });
   }
 
-  function nextRound() {
-    if (isHost) {
-      round++;
-      session.send("nc_round", { round, scores });
-      beginRound();
+  function maybeStartBreaking() {
+    if (!isHost || !readySecrets[0] || !readySecrets[1]) return;
+    session.send("nc_turn", { round, turn, scores, histories, done });
+    showTurn();
+  }
+
+  function showTurn() {
+    if (done[0] && done[1]) { showResult(); return; }
+    while (done[ownerForTurn()]) turn++;
+    const breaker = breakerForTurn();
+    const owner = ownerForTurn();
+    if (isHost) session.send("nc_turn", { round, turn, scores, histories, done });
+    if (myIdx === breaker) {
+      const renderGuess = (body) => screen(el("div", { class: "screen" }, [ownCodeCard(secrets[myIdx], histories[myIdx]), body]));
+      guessComposer(renderGuess, `Crack ${names[owner]}'s pattern`, histories[owner], (guess) => {
+        session.send("nc_guess", { round, turn, guess, breaker, owner });
+        screen(waitingCard("breaker", "Guess sent", histories[owner]));
+      });
     } else {
-      session.send("nc_next");
+      screen(el("div", { class: "screen" }, [
+        el("div", { class: "nc-role maker" }, [el("span", {}, "CODEMAKER"), el("b", {}, `${names[breaker]} is guessing your code`)]),
+        ownCodeCard(secrets[myIdx], histories[myIdx]),
+        el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Waiting for their guess..."]),
+      ]));
     }
   }
 
+  function applyFeedback(m) {
+    if (m.round !== round || !m.entry) return;
+    histories[m.owner].push(m.entry);
+    done[m.owner] = !!m.done;
+    scores = m.scores;
+    if (m.secret) secrets[m.owner] = m.secret;
+    if (m.done && m.entry.exact === CODE_LENGTH) haptic([8, 18, 8]);
+  }
+
+  function scoreIncomingGuess(m) {
+    if (m.round !== round || m.owner !== myIdx || !secrets[myIdx]) return;
+    const feedback = scoreGuess(secrets[myIdx], m.guess);
+    const nextHistory = histories[myIdx].concat({ guess: m.guess, ...feedback });
+    const solved = feedback.exact === CODE_LENGTH;
+    const codeDone = solved || nextHistory.length >= MAX_ATTEMPTS;
+    const nextScores = scores.slice();
+    if (codeDone && !done[myIdx]) {
+      if (solved) nextScores[m.breaker] += MAX_ATTEMPTS - nextHistory.length + 1;
+      else nextScores[myIdx] += 3;
+    }
+    const payload = {
+      round,
+      turn: m.turn,
+      owner: myIdx,
+      breaker: m.breaker,
+      entry: { guess: m.guess, ...feedback },
+      done: codeDone,
+      secret: codeDone ? secrets[myIdx] : null,
+      scores: nextScores,
+    };
+    applyFeedback(payload);
+    session.send("nc_feedback", payload);
+    screen(waitingCard("maker", codeDone ? "Your code is finished" : `${names[m.breaker]} gets another clue`, histories[myIdx]));
+    if (isHost) advanceAfterFeedback();
+  }
+
+  function advanceAfterFeedback() {
+    if (!isHost) return;
+    if (done[0] && done[1]) {
+      session.send("nc_result", { round, secrets, histories, scores });
+      showResult();
+      return;
+    }
+    turn++;
+    showTurn();
+  }
+
   function showResult() {
-    screen(resultView(names, makerIdx(), breakerIdx(), secret, history, scores, nextRound));
+    if (resultShown) return;
+    resultShown = true;
+    const ready = onlineReadyGate(session, `nc:${round}:result`, () => {
+      if (isHost) {
+        round++;
+        session.send("nc_round", { round, scores });
+        beginRound();
+      }
+    }, { label: "Ready for next duel ->" });
+    screen(duelResultView(names, secrets, histories, scores, null, ready));
   }
 
   session.on("nc_round", (m) => {
@@ -268,45 +378,38 @@ function online(ctx) {
     beginRound();
   });
 
-  session.on("nc_ready", (m) => {
-    if (m.round === round && myIdx === breakerIdx()) showBreakerTurn();
+  session.on("nc_secret_ready", (m) => {
+    if (m.round !== round) return;
+    readySecrets[m.player] = true;
+    maybeStartBreaking();
   });
 
-  session.on("nc_guess", (m) => {
-    if (m.round !== round || myIdx !== makerIdx() || !secret) return;
-    const feedback = scoreGuess(secret, m.guess);
-    history.push({ guess: m.guess, ...feedback });
-    const solved = feedback.exact === CODE_LENGTH;
-    const done = solved || history.length >= MAX_ATTEMPTS;
-    if (done) {
-      if (solved) scores[breakerIdx()] += MAX_ATTEMPTS - history.length + 1;
-      else scores[makerIdx()] += 3;
-    }
-    session.send("nc_feedback", {
-      round,
-      entry: history.at(-1),
-      done,
-      secret: done ? secret : null,
-      scores,
-    });
-    if (done) showResult();
-    else screen(waitingCard("maker", `${names[breakerIdx()]} is making another guess`, history));
+  session.on("nc_turn", (m) => {
+    if (m.round !== round) return;
+    turn = m.turn;
+    scores = m.scores;
+    histories = m.histories;
+    done = m.done;
+    showTurn();
   });
+
+  session.on("nc_guess", scoreIncomingGuess);
 
   session.on("nc_feedback", (m) => {
-    if (m.round !== round || myIdx !== breakerIdx()) return;
-    history.push(m.entry);
-    scores = m.scores;
-    if (m.done) {
-      secret = m.secret;
-      showResult();
-    } else {
-      haptic(m.entry.exact ? [8, 18, 8] : 8);
-      showBreakerTurn();
-    }
+    applyFeedback(m);
+    if (isHost) advanceAfterFeedback();
+    else if (done[0] && done[1]) showResult();
+    else screen(waitingCard("breaker", "Waiting for the next turn", histories[ownerForTurn()] || []));
   });
 
-  if (isHost) session.on("nc_next", nextRound);
+  session.on("nc_result", (m) => {
+    if (m.round !== round) return;
+    secrets = m.secrets;
+    histories = m.histories;
+    scores = m.scores;
+    done = [true, true];
+    showResult();
+  });
 
   if (isHost) {
     session.send("nc_round", { round, scores });

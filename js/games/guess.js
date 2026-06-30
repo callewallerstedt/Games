@@ -1,5 +1,5 @@
 // "Closest Guess" — estimate wild numbers; nearest answer wins the round.
-import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic, connectionPill } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic, connectionPill, onlineReadyGate, localReadyGate } from "../ui.js";
 import { GUESS_PROMPTS } from "../data/guess-prompts.js";
 
 const game = {
@@ -31,7 +31,7 @@ function fmt(n) {
   return n.toFixed(1);
 }
 
-function revealScreen(names, item, guesses, errors, scores, onNext) {
+function revealScreen(names, item, guesses, errors, scores, nextControl) {
   const best = Math.min(...errors);
   const winners = errors.map((e, i) => e === best ? i : -1).filter((i) => i >= 0);
   const rows = names.map((n, i) => {
@@ -54,7 +54,7 @@ function revealScreen(names, item, guesses, errors, scores, onNext) {
     ]),
     el("div", { class: "stack" }, rows),
     el("div", { class: "scorebar" }, names.map((n, i) => scoreChip(scores[i], n))),
-    el("div", { class: "footer-actions" }, button("Next question →", { big: true, onClick: onNext })),
+    el("div", { class: "footer-actions" }, nextControl),
   ]);
 }
 
@@ -125,10 +125,8 @@ function online(ctx) {
 
   function showReveal(p) {
     if (p.errors.filter((e) => e === Math.min(...p.errors)).length === 1) celebrate();
-    screen(revealScreen(names, p.item, p.guesses, p.errors, p.scores, () => {
-      if (isHost) hostNewRound();
-      else session.send("guess_next");
-    }));
+    screen(revealScreen(names, p.item, p.guesses, p.errors, p.scores,
+      onlineReadyGate(session, `guess:${qi}`, () => { if (isHost) hostNewRound(); }, { label: "Ready for next" })));
     haptic(12);
   }
 
@@ -150,7 +148,6 @@ function online(ctx) {
     checkReveal();
   });
   session.on("guess_reveal", showReveal);
-  session.on("guess_next", () => { if (isHost) hostNewRound(); });
 
   screen(el("div", { class: "card center" }, [
     el("h2", {}, "📏 Closest Guess"),
@@ -187,7 +184,8 @@ function local(ctx) {
     winners.forEach((i) => { scores[i]++; });
     if (winners.length === 1) celebrate();
 
-    screen(revealScreen(names, item, guesses, errors, scores, round));
+    screen(revealScreen(names, item, guesses, errors, scores,
+      localReadyGate(names, round, { label: "Ready for next" })));
     haptic(12);
   }
 

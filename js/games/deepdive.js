@@ -2,7 +2,7 @@
 // cute to deep to spicy. No scoring — just take turns drawing a card and talking.
 // Inspired by "36 Questions" / "We're Not Really Strangers". Online or one phone.
 
-import { el, render, button, connectionPill, gameHeader, segmented, shuffle } from "../ui.js";
+import { el, render, button, connectionPill, gameHeader, segmented, shuffle, onlineReadyGate, localReadyGate } from "../ui.js";
 import { DEEP } from "../data/decks.js";
 
 const LEVELS = [
@@ -44,7 +44,7 @@ function cardView(level, text, turnName) {
 function online(ctx) {
   const { session } = ctx;
   const isHost = session.isHost;
-  let level = "cute", deck = [], di = 0, turn = 0;
+  let level = "cute", deck = [], di = 0, turn = 0, cardNo = 0;
   const status = connectionPill();
   session.onStatus(status.set);
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
@@ -58,28 +58,30 @@ function online(ctx) {
       el("div", { class: "footer-actions" }, button("Start the deck →", { big: true, onClick: () => { level = seg.get(); session.send("deep_start", { level }); startDeck(); } })),
     ]));
   }
-  function startDeck() { deck = shuffle(DEEP[level]); di = 0; turn = 0; hostDraw(); }
+  function startDeck() { deck = shuffle(DEEP[level]); di = 0; turn = 0; cardNo = 0; hostDraw(); }
   function hostDraw() {
     if (di >= deck.length) { deck = shuffle(DEEP[level]); di = 0; }
     const text = deck[di++];
-    session.send("deep_card", { level, text, turn });
-    showCard(text);
+    const cardId = cardNo++;
+    session.send("deep_card", { level, text, turn, cardId });
+    showCard(text, cardId);
     turn = 1 - turn;
   }
-  function showCard(text) {
+  function showCard(text, cardId) {
     screen(el("div", { class: "screen" }, [
       cardView(level, text, nameOf(turn)),
       el("div", { class: "footer-actions" }, [
-        button("Next card →", { big: true, onClick: () => isHost ? hostDraw() : session.send("deep_next") }),
+        onlineReadyGate(session, `deep:${cardId}`, () => {
+          if (isHost) hostDraw();
+        }, { label: "Ready for next ->" }),
         button("Change vibe", { variant: "ghost", onClick: () => isHost ? chooseLevel() : session.send("deep_relevel") }),
       ]),
     ]));
   }
 
   session.on("deep_start", (m) => { level = m.level; });
-  session.on("deep_card", (m) => { level = m.level; turn = m.turn; showCard(m.text); });
+  session.on("deep_card", (m) => { level = m.level; turn = m.turn; showCard(m.text, m.cardId); });
   if (isHost) {
-    session.on("deep_next", () => hostDraw());
     session.on("deep_relevel", () => chooseLevel());
   } else {
     session.on("deep_relevel_go", () => {}); // reserved
@@ -109,7 +111,7 @@ function local(ctx) {
     screen(el("div", { class: "screen" }, [
       cardView(level, text, names[turn]),
       el("div", { class: "footer-actions" }, [
-        button("Next card →", { big: true, onClick: () => { turn = 1 - turn; draw(); } }),
+        localReadyGate(names, () => { turn = 1 - turn; draw(); }, { label: "ready" }),
         button("Change vibe", { variant: "ghost", onClick: chooseLevel }),
       ]),
     ]));

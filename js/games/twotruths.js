@@ -2,7 +2,7 @@
 // the other hunts the lie. Roles swap. Co-op "lie detector" score.
 // Online (2 phones) or one phone (pass it).
 
-import { el, render, button, connectionPill, passDevice, gameHeader, meter, shuffle, celebrate } from "../ui.js";
+import { el, render, button, connectionPill, passDevice, gameHeader, meter, shuffle, celebrate, onlineReadyGate, localReadyGate } from "../ui.js";
 
 const game = {
   id: "ttl",
@@ -127,7 +127,9 @@ function online(ctx) {
     body.append(el("div", { style: "margin:12px 4px 0" }, [
       el("div", { class: "tiny muted center", style: "margin-bottom:6px" }, `Lie detector · ${p.stats.found}/${p.stats.rounds}`),
       meter(p.stats.rounds ? p.stats.found / p.stats.rounds : 0)]),
-      el("div", { class: "footer-actions" }, button("Next round →", { big: true, onClick: () => isHost ? (round++, hostNewRound()) : session.send("ttl_next") })));
+      el("div", { class: "footer-actions" }, onlineReadyGate(session, `ttl:${p.stats.rounds}`, () => {
+        if (isHost) { round++; hostNewRound(); }
+      }, { label: "Ready for next ->" })));
     screen(body);
   }
   const waiting = (msg) => screen(el("div", { class: "card" }, [el("div", { class: "waiting" }, [el("div", { class: "spinner" }), msg])]));
@@ -140,7 +142,6 @@ function online(ctx) {
   if (isHost) {
     session.on("ttl_composed", (m) => { cur = m; asGuesser(m.statements); });   // guest told, host guesses
     session.on("ttl_choice", (m) => doReveal(m.index));                          // guest guessed
-    session.on("ttl_next", () => { round++; hostNewRound(); });
   }
   if (isHost) hostNewRound();
   else waiting(`Waiting for ${session.partnerName} to start…`);
@@ -165,7 +166,7 @@ function local(ctx) {
     body.append(el("div", { style: "margin:12px 4px 0" }, [
       el("div", { class: "tiny muted center", style: "margin-bottom:6px" }, `Lie detector · ${stats.found}/${stats.rounds}`),
       meter(stats.found / stats.rounds)]),
-      el("div", { class: "footer-actions" }, button("Next round →", { big: true, onClick: () => { round++; playRound(); } })));
+      el("div", { class: "footer-actions" }, localReadyGate(names, () => { round++; playRound(); }, { label: "ready" })));
     screen(body);
   }
   playRound();

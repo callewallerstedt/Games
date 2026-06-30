@@ -1,5 +1,5 @@
 // "Triangle Lines" — tap two nearby dots to draw a line; close a triangle, go again.
-import { el, render, button, gameHeader, scoreChip, haptic, PLAYER_COLORS } from "../ui.js";
+import { el, render, button, gameHeader, scoreChip, haptic, PLAYER_COLORS, localReadyGate } from "../ui.js";
 
 const SIZE = 4;
 const INSET = 8;
@@ -223,7 +223,7 @@ function local(ctx) {
         el("p", {}, wins.length > 1 ? "It's a tie!" : `${names[wins[0]]} wins with ${best} triangles!`),
       ]),
       el("div", { class: "scorebar" }, names.map((nm, i) => scoreChip(scores[i], nm, { color: colors[i] }))),
-      el("div", { class: "footer-actions" }, button("Play again", { big: true, onClick: reset })),
+      el("div", { class: "footer-actions" }, localReadyGate(names, reset, { label: "ready" })),
     ]));
   }
 

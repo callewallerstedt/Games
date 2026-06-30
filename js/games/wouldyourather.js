@@ -2,7 +2,7 @@
 // Match = compatibility points; either way it sparks a fun debate.
 // Online = 2 phones (simultaneous reveal). Local = pass the phone.
 
-import { el, render, button, connectionPill, passDevice, gameHeader, scoreChip, meter, shuffle, celebrate } from "../ui.js";
+import { el, render, button, connectionPill, passDevice, gameHeader, scoreChip, meter, shuffle, celebrate, onlineReadyGate, localReadyGate } from "../ui.js";
 import { WOULD_YOU_RATHER } from "../data/decks.js";
 
 const game = {
@@ -111,7 +111,9 @@ function online(ctx) {
         el("div", { class: "tiny muted center", style: "margin-bottom:6px" }, `Compatibility · ${p.stats.matches}/${p.stats.rounds}`),
         meter(frac),
       ]),
-      el("div", { class: "footer-actions" }, button("Next →", { big: true, onClick: () => isHost ? hostNewRound() : session.send("wyr_next") })),
+      el("div", { class: "footer-actions" }, onlineReadyGate(session, `wyr:${p.stats.rounds}`, () => {
+        if (isHost) hostNewRound();
+      }, { label: "Ready for next ->" })),
     ]));
   }
 
@@ -119,7 +121,6 @@ function online(ctx) {
   session.on("wyr_reveal", (m) => { stats = m.stats; prompt = m.prompt; showReveal(m); });
   if (isHost) {
     session.on("wyr_choice", (m) => { pending.b = m.choice; hostTryReveal(); });
-    session.on("wyr_next", () => hostNewRound());
   }
   if (isHost) hostNewRound();
   else screen(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), `Waiting for ${session.partnerName} to start…`]));
@@ -167,7 +168,7 @@ function local(ctx) {
         el("div", { class: "tiny muted center", style: "margin-bottom:6px" }, `Compatibility · ${stats.matches}/${stats.rounds}`),
         meter(frac),
       ]),
-      el("div", { class: "footer-actions" }, button("Next →", { big: true, onClick: round })),
+      el("div", { class: "footer-actions" }, localReadyGate(names, round, { label: "ready" })),
     ]));
   }
   round();

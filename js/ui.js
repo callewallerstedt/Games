@@ -185,6 +185,67 @@ export function scoreChip(n, label, opts = {}) {
   }, [el("span", { class: "n" }, String(n)), el("span", { class: "l" }, label)]);
 }
 
+export function onlineReadyGate(session, gateId, onBothReady, opts = {}) {
+  const label = opts.label || "Ready";
+  const waitingLabel = opts.waitingLabel || `Waiting for ${session.partnerName}...`;
+  const myIdx = session.isHost ? 0 : 1;
+  let mine = false;
+  let theirs = false;
+  let done = false;
+  const status = el("div", { class: "ready-status muted tiny center" }, "Both players must be ready.");
+  const btn = button(label, {
+    big: true,
+    onClick: () => {
+      if (mine || done) return;
+      mine = true;
+      btn.disabled = true;
+      btn.textContent = waitingLabel;
+      status.textContent = "You are ready.";
+      session.send("ready_gate", { id: gateId, from: myIdx });
+      maybeGo();
+    },
+  });
+  function finish() {
+    if (done) return;
+    done = true;
+    onBothReady();
+  }
+  function maybeGo() {
+    if (!session.isHost || !mine || !theirs || done) return;
+    session.send("ready_gate_go", { id: gateId });
+    finish();
+  }
+  session.on("ready_gate", (m) => {
+    if (!m || m.id !== gateId || m.from === myIdx || done) return;
+    theirs = true;
+    status.textContent = mine ? "Both ready." : `${session.partnerName} is ready.`;
+    maybeGo();
+  });
+  session.on("ready_gate_go", (m) => {
+    if (!m || m.id !== gateId) return;
+    finish();
+  });
+  return el("div", { class: "ready-gate" }, [status, btn]);
+}
+
+export function localReadyGate(names, onAllReady, opts = {}) {
+  const ready = new Set();
+  const label = opts.label || "Ready";
+  const status = el("div", { class: "ready-status muted tiny center" }, `0/${names.length} ready`);
+  const buttons = names.map((name, i) => button(`${name}: ${label}`, {
+    variant: "secondary",
+    onClick: (event) => {
+      if (ready.has(i)) return;
+      ready.add(i);
+      event.currentTarget.disabled = true;
+      event.currentTarget.textContent = `${name}: ready`;
+      status.textContent = `${ready.size}/${names.length} ready`;
+      if (ready.size === names.length) onAllReady();
+    },
+  }));
+  return el("div", { class: "ready-gate local-ready-gate" }, [status, ...buttons]);
+}
+
 // Register the service worker (offline + installable). Safe no-op if unsupported.
 export function registerSW() {
   if (!("serviceWorker" in navigator)) return;

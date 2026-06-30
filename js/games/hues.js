@@ -3,7 +3,7 @@
 // colour on a spectrum. Score by how close. Roles swap. Co-op team score.
 // Works on two phones (secret colour stays on the cluer's phone) or one (pass it).
 
-import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, celebrate } from "../ui.js";
+import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, celebrate, onlineReadyGate, localReadyGate } from "../ui.js";
 
 const COLS = 12;
 const ROWS = 8;
@@ -172,9 +172,9 @@ function onlineGame(ctx) {
 
   function showReveal(p) {
     if (p.pts >= 4) celebrate();
-    const next = button("Next round ↻", { big: true, onClick: () => {
-      if (isHost) { round++; hostNewRound(); } else session.send("hues_next");
-    } });
+    const next = onlineReadyGate(session, `hues:${p.round}`, () => {
+      if (isHost) { round++; hostNewRound(); }
+    }, { label: "Ready for next" });
     screen(el("div", { class: "screen" }, [
       el("div", { class: "center" }, [el("span", { class: "muted" }, "Clue was"), el("div", { class: "clue-tag", style: "margin:8px 0 14px" }, p.clue)]),
       grid({ target: p.target, guess: p.guess, disabled: true }),
@@ -221,7 +221,6 @@ function onlineGame(ctx) {
   session.on("hues_preview", (m) => { partnerPreview = m.cell; refreshWaiting(); });
   session.on("hues_guess", (m) => { hostReveal(m.cell); });                    // host computes
   session.on("hues_reveal", (m) => { team = m.team; round = m.round; waitingOpts = null; showReveal(m); });
-  session.on("hues_next", () => { round++; hostNewRound(); });
 
   if (isHost) hostNewRound();
   else showWaiting({ msg: `Waiting for ${session.partnerName} to start…` });
@@ -270,7 +269,7 @@ function localGame(ctx) {
       el("div", { class: "verdict match", style: "margin-top:14px" }, `🎯 +${pts} points`),
       el("div", { class: "scorebar" }, [scoreChip(team.total, "team total"), scoreChip(team.best, "best round")]),
       el("p", { class: "center muted" }, pts === 5 ? "Bullseye! 💞" : pts >= 3 ? "So close!" : "Tricky one!"),
-      el("div", { class: "footer-actions" }, button("Next round ↻", { big: true, onClick: () => { round++; playRound(); } })),
+      el("div", { class: "footer-actions" }, localReadyGate(names, () => { round++; playRound(); }, { label: "Ready for next" })),
     ]));
   }
 

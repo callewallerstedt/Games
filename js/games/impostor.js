@@ -3,7 +3,7 @@
 // related-but-different question. Pass the phone so each reads (and optionally
 // answers) in secret. Then the group discusses and votes who the impostor is.
 
-import { el, render, button, gameHeader, passDevice, segmented, scoreChip, shuffle, celebrate, haptic } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, segmented, scoreChip, shuffle, celebrate, haptic, localReadyGate } from "../ui.js";
 import { IMPOSTOR } from "../data/decks.js";
 
 const game = {
@@ -115,7 +115,7 @@ function local(ctx) {
         el("div", { class: "answer-card" }, [el("span", { class: "who" }, "Impostor's question"), el("span", { class: "val", style: "font-size:.98rem" }, pair.impostor)]),
       ]),
       el("div", { class: "scorebar" }, [scoreChip(score.group, "group wins"), scoreChip(score.impostor, "impostor wins")]),
-      el("div", { class: "footer-actions" }, button("Next round →", { big: true, onClick: playRound })),
+      el("div", { class: "footer-actions" }, localReadyGate(names, playRound, { label: "ready" })),
     ]));
   }
 

@@ -1,5 +1,5 @@
 // "Letter Rush" — Tapple-style category + A–Z race against the clock.
-import { el, render, button, gameHeader, passDevice, segmented, scoreChip, shuffle, celebrate, haptic } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, segmented, scoreChip, shuffle, celebrate, haptic, localReadyGate } from "../ui.js";
 import { TAPPLE_THEMES, LETTERS } from "../data/tapple-themes.js";
 
 const game = {
@@ -139,7 +139,7 @@ function local(ctx) {
         ]),
         el("div", { class: "scorebar" }, names.map((n, i) => scoreChip(scores[i], n))),
         el("div", { class: "footer-actions" }, [
-          button("Next round ↻", { big: true, onClick: playRound }),
+          localReadyGate(names, playRound, { label: "ready" }),
           button("New settings", { variant: "ghost", onClick: setup }),
         ]),
       ]));

@@ -1,5 +1,5 @@
 // "Crazy True or False" — bonkers facts; race to call them right.
-import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic, localReadyGate } from "../ui.js";
 import { TRUEFALSE_FACTS } from "../data/truefalse-facts.js";
 
 const game = {
@@ -75,7 +75,7 @@ function local(ctx) {
       ]),
       el("div", { class: "stack" }, rows),
       el("div", { class: "scorebar" }, names.map((n, i) => scoreChip(scores[i], n))),
-      el("div", { class: "footer-actions" }, button("Next one →", { big: true, onClick: round })),
+      el("div", { class: "footer-actions" }, localReadyGate(names, round, { label: "ready" })),
     ]));
     haptic(12);
   }

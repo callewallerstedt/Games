@@ -602,6 +602,52 @@ p { margin: 0 0 .8em; }
 .nc-feedback .exact { color: var(--good); }
 .nc-feedback .near { color: var(--warn); }
 .nc-reveal .nc-slots { margin-bottom: 0; }
+.nc-duel-results { display: grid; gap: 12px; }
+
+/* ---------- Wavelength ---------- */
+.ready-gate { display: grid; gap: 8px; }
+.ready-status { min-height: 1em; }
+.wave-card {
+  padding: 18px; border-radius: 18px; border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--surface), var(--surface-2)); box-shadow: var(--shadow-sm);
+}
+.wave-labels { display: flex; justify-content: space-between; gap: 12px; font-size: .9rem; text-transform: capitalize; }
+.wave-track {
+  position: relative; height: 44px; margin: 18px 10px 4px; border-radius: 999px;
+  background: linear-gradient(90deg,#3b82f6,#f8fafc 50%,#ef4444);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.12);
+}
+.wave-pin {
+  position: absolute; top: 50%; transform: translate(-50%,-50%); width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-size: .72rem; font-weight: 900; color: #fff; border: 3px solid #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,.22);
+}
+.wave-pin.target { background: #111827; }
+.wave-pin.guess { background: #16a34a; }
+.wave-readout { text-align: center; font-size: 1.35rem; font-weight: 900; color: var(--brand); }
+.wave-slider { width: 100%; accent-color: var(--brand); }
+
+/* ---------- BombParty ---------- */
+.bomb-card {
+  text-align: center; display: grid; gap: 14px; padding: 22px; border: 1px solid var(--line-strong);
+  border-radius: 18px; background: radial-gradient(circle at 50% 0%, #fff7ed, var(--surface) 58%);
+  box-shadow: var(--shadow);
+}
+.bomb-card.exploded { background: radial-gradient(circle at 50% 0%, #fee2e2, var(--surface) 62%); }
+.bomb-emoji { font-size: 3.3rem; line-height: 1; }
+.bomb-timer {
+  position: relative; height: 18px; overflow: hidden; border-radius: 999px; background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.bomb-timer i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg,#22c55e,#facc15,#ef4444); transition: width .1s linear; }
+.bomb-timer b {
+  position: absolute; inset: 0; display: grid; place-items: center; font-size: .68rem; color: #111827;
+}
+.bomb-syllable {
+  justify-self: center; min-width: 104px; padding: 10px 18px; border-radius: 14px; background: #111827; color: #fff;
+  font-size: 2.1rem; font-weight: 950; letter-spacing: .08em;
+}
+.bomb-input { text-align: center; text-transform: lowercase; }
 
 /* ---------- Flash Duel ---------- */
 .duel-demo { display: flex; justify-content: center; align-items: center; gap: 14px; font-weight: 900; }

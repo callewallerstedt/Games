@@ -3,7 +3,7 @@
 // Online = 2 players, simultaneous reveal + mind-meld streak.
 // Local = 2–8 players, pass-the-phone, majority scores, odd-one-out gets the Pink Cow 🐷.
 
-import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, shuffle, celebrate } from "../ui.js";
+import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, shuffle, celebrate, onlineReadyGate, localReadyGate } from "../ui.js";
 import { HERD_QUESTIONS } from "../data/herd-questions.js";
 
 const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -125,9 +125,9 @@ function onlineGame(ctx) {
     ]);
     const verdict = el("div", { class: `verdict ${p.match ? "match" : "nomatch"}` },
       p.match ? "🧠 You think alike!" : "🐮 Off the herd!");
-    const next = button("Next question →", { big: true, onClick: () => {
-      if (isHost) hostNewRound(); else session.send("herd_next");
-    } });
+    const next = onlineReadyGate(session, `herd:${p.stats.rounds}`, () => {
+      if (isHost) hostNewRound();
+    }, { label: "Ready for next ->" });
     // Host can manually count a near-miss (typos / phrasing) as a match.
     const override = (!p.match && isHost) ? button("✅ Close enough — count it", { variant: "secondary", onClick: () => {
       stats.matches++; stats.streak = (stats.streak || 0) + 1;
@@ -153,7 +153,6 @@ function onlineGame(ctx) {
   session.on("herd_override", (m) => { stats = m.stats; showReveal(m); });
   if (isHost) {
     session.on("herd_answer", (m) => { pending.a2 = m.text; hostTryReveal(); });
-    session.on("herd_next", () => hostNewRound());
   }
 
   // Kick off
@@ -191,9 +190,13 @@ function localGame(ctx) {
   }
 
   function reveal(q, answers) {
-    const groups = {};
-    answers.forEach((a, i) => { (groups[norm(a)] ||= []).push(i); });
-    const maxSize = Math.max(...Object.values(groups).map((g) => g.length));
+    const groups = new Map();
+    answers.forEach((a, i) => {
+      const key = norm(a);
+      groups.set(key, (groups.get(key) || []).concat(i));
+    });
+    const groupedAnswers = Array.from(groups.values());
+    const maxSize = Math.max(...groupedAnswers.map((g) => g.length));
     cows = names.map(() => false);
     let matched2p = names.length === 2 && maxSize === 2;
     let overridden = false;
@@ -201,7 +204,7 @@ function localGame(ctx) {
       if (matched2p) { scores[0]++; scores[1]++; celebrate(); }
       else cows = [true, true];
     } else {
-      Object.values(groups).forEach((g) => {
+      groupedAnswers.forEach((g) => {
         if (g.length === maxSize && maxSize > 1) g.forEach((i) => scores[i]++);
         if (g.length === 1) g.forEach((i) => { cows[i] = true; });
       });
@@ -233,7 +236,7 @@ function localGame(ctx) {
         pointsLine,
         el("h3", { class: "center", style: "margin-top:16px" }, "Standings"),
         el("div", { class: "stack" }, standings),
-        el("div", { class: "footer-actions" }, [override, button("Next question →", { big: true, onClick: playRound })]),
+        el("div", { class: "footer-actions" }, [override, localReadyGate(names, playRound, { label: "ready" })]),
       ]));
     }
     draw();

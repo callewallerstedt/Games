@@ -3,7 +3,7 @@
 // answerer judges if the guess was right. Roles swap. Co-op "how well we know
 // each other" score. Online (2 phones) or one phone (pass it).
 
-import { el, render, button, connectionPill, passDevice, gameHeader, scoreChip, meter, shuffle, celebrate } from "../ui.js";
+import { el, render, button, connectionPill, passDevice, gameHeader, scoreChip, meter, shuffle, celebrate, onlineReadyGate, localReadyGate } from "../ui.js";
 import { HOWWELL } from "../data/decks.js";
 
 const game = {
@@ -124,7 +124,9 @@ function online(ctx) {
     screen(el("div", { class: "screen" }, [
       el("div", { class: `verdict ${correct ? "match" : "nomatch"}`, style: "margin-top:30px" }, correct ? "✅ Nailed it!" : "❌ So close!"),
       scoreFooter(stats),
-      el("div", { class: "footer-actions" }, button("Next round →", { big: true, onClick: () => isHost ? (round++, hostNewRound()) : session.send("hw_next") })),
+      el("div", { class: "footer-actions" }, onlineReadyGate(session, `hw:${stats.rounds}`, () => {
+        if (isHost) { round++; hostNewRound(); }
+      }, { label: "Ready for next ->" })),
     ]));
   }
 
@@ -135,7 +137,6 @@ function online(ctx) {
     session.on("hw_answer", (m) => { pending.answer = m.text; tryReveal(); });
     session.on("hw_guess", (m) => { pending.guess = m.text; tryReveal(); });
     session.on("hw_judge", (m) => { applyResult(m.correct); session.send("hw_result", { correct: m.correct, stats }); showResult(m.correct, stats); });
-    session.on("hw_next", () => { round++; hostNewRound(); });
   }
   if (isHost) hostNewRound();
   else screen(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), `Waiting for ${session.partnerName} to start…`]));
@@ -177,7 +178,7 @@ function local(ctx) {
       screen(el("div", { class: "screen" }, [
         el("div", { class: `verdict ${correct ? "match" : "nomatch"}`, style: "margin-top:30px" }, correct ? "✅ Nailed it!" : "❌ So close!"),
         scoreFooter(stats),
-        el("div", { class: "footer-actions" }, button("Next round →", { big: true, onClick: () => { round++; playRound(); } })),
+        el("div", { class: "footer-actions" }, localReadyGate(names, () => { round++; playRound(); }, { label: "ready" })),
       ]));
     }
   }
