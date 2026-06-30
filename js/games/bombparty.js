@@ -1,6 +1,6 @@
-// "JKLM BombParty" - type a word containing the syllable before the bomb pops.
+// "JKLM BombParty" — say a word with the syllable before the bomb pops. Tap to play.
 
-import { el, render, button, pill, connectionPill, gameHeader, scoreChip, haptic, celebrate, onlineReadyGate, setGameCleanup } from "../ui.js";
+import { el, render, pill, connectionPill, gameHeader, scoreChip, haptic, celebrate, onlineReadyGate, setGameCleanup } from "../ui.js";
 
 const SYLLABLES = [
   "ab", "ac", "ad", "al", "am", "an", "ap", "ar", "at", "be", "bi", "bo", "br",
@@ -11,7 +11,6 @@ const SYLLABLES = [
   "sp", "st", "ta", "te", "th", "ti", "to", "tr", "un", "ve", "wa", "wi",
 ];
 
-const norm = (s) => (s || "").trim().toLowerCase().replace(/[^a-z]/g, "");
 const randomSyllable = () => SYLLABLES[Math.floor(Math.random() * SYLLABLES.length)];
 const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 
@@ -31,12 +30,16 @@ function fuseDurationMs(cfg, { bombRound = 0, wordsThisBomb = 0 } = {}) {
   return Math.max(cfg.minSec, seconds) * 1000;
 }
 
+function fuseSeconds(cfg, state) {
+  return fuseDurationMs(cfg, state) / 1000;
+}
+
 const game = {
   id: "bombparty",
   title: "JKLM BombParty",
   emoji: "💣",
   color: "linear-gradient(135deg,#111827,#ef4444 65%,#facc15)",
-  blurb: "Type a word containing the syllable before the bomb explodes.",
+  blurb: "Say a word with the syllable before the bomb explodes — tap to pass!",
   minPlayers: 2,
   maxPlayers: 8,
   modes: ["local", "online"],
@@ -47,26 +50,19 @@ const game = {
   ],
   estMinutes: 8,
   rulesHTML: `
-    <p>A syllable appears, like <b>tri</b> or <b>sp</b>. The active player must type a word containing it before time runs out.</p>
+    <p>A syllable appears, like <b>tri</b> or <b>sp</b>. The active player says a word containing it out loud, then taps to pass the bomb.</p>
     <ol>
-      <li>Words must contain the syllable and be at least 3 letters.</li>
-      <li>No repeated words in the same bomb.</li>
-      <li>A valid word passes the bomb to the next player with a fresh syllable.</li>
+      <li><b>First tap</b> starts the fuse (unless per-word mode auto-started it on you).</li>
+      <li><b>Second tap</b> means you said a valid word — bomb goes to the next player.</li>
       <li>If the bomb explodes on you, you lose a life.</li>
     </ol>
     <p><b>Per bomb</b> keeps one fuse burning across every handoff. <b>Per word</b> gives each player a fresh countdown.</p>
-    <p>Each new bomb can start with less time if you set <b>Reduce timer by</b>. In per-word mode, that same amount is also shaved off after every valid word.</p>
-    <p class="muted">On one device, tap to start the fuse, tap again when you've said a word — no typing.</p>`,
-  mount(ctx) { ctx.mode === "online" ? online(ctx) : local(ctx); },
+    <p>Each new bomb can start with less time if you set <b>Reduce timer by</b>.</p>`,
+  mount(ctx) {
+    const mode = ctx.mode || ctx.session?.mode || "local";
+    mode === "online" ? online(ctx) : local(ctx);
+  },
 };
-
-function validateWord(word, syllable, used) {
-  const w = norm(word);
-  if (w.length < 3) return "Use at least 3 letters.";
-  if (!w.includes(syllable)) return `Word must contain "${syllable}".`;
-  if (used.has(w)) return "That word was already used.";
-  return "";
-}
 
 function livesBar(names, lives) {
   return el("div", { class: "scorebar" }, names.map((name, i) => scoreChip(lives[i], name)));
@@ -85,7 +81,7 @@ function bombTimer(deadline, onExpire) {
     if (left <= 0 && !done) {
       done = true;
       clearInterval(id);
-      onExpire && onExpire();
+      onExpire?.();
     }
   };
   const id = setInterval(tick, 100);
@@ -99,7 +95,7 @@ function bombTimerStatic(seconds) {
   return el("div", { class: "bomb-timer paused" }, [el("i", { style: "width:100%" }), label]);
 }
 
-function localTapScreen({ names, lives, active, syllable, timerNode, hint, onTap }) {
+function tapTurnScreen({ names, lives, active, syllable, timerNode, hint, onTap }) {
   return el("div", { class: "screen bomb-tap-screen" }, [
     livesBar(names, lives),
     el("button", { class: "bomb-tap-card", type: "button", onClick: onTap }, [
@@ -112,7 +108,20 @@ function localTapScreen({ names, lives, active, syllable, timerNode, hint, onTap
   ]);
 }
 
-function localBoomScreen(names, lives, loser) {
+function tapWaitingScreen({ names, lives, active, syllable, timerNode }) {
+  return el("div", { class: "screen bomb-tap-screen" }, [
+    livesBar(names, lives),
+    el("div", { class: "bomb-tap-card bomb-tap-waiting" }, [
+      el("div", { class: "bomb-emoji" }, "💣"),
+      timerNode,
+      el("div", { class: "bomb-syllable" }, syllable),
+      el("strong", { class: "bomb-tap-name" }, names[active]),
+      el("div", { class: "waiting compact-wait" }, [el("div", { class: "spinner" }), `${names[active]}'s turn…`]),
+    ]),
+  ]);
+}
+
+function autoBoomScreen(names, lives, loser) {
   haptic([20, 50, 20]);
   const alive = lives.map((life, i) => life > 0 ? i : -1).filter((i) => i >= 0);
   if (alive.length === 1) celebrate();
@@ -124,35 +133,6 @@ function localBoomScreen(names, lives, loser) {
       alive.length === 1 ? el("div", { class: "verdict match" }, `${names[alive[0]]} wins!`) : null,
       el("p", { class: "muted center tiny" }, "Next bomb starting…"),
     ]),
-  ]);
-}
-
-function turnScreen({ names, lives, active, syllable, deadline, used, canType, onSubmit, onExpire, error }) {
-  const input = el("input", {
-    class: "field bomb-input",
-    placeholder: `word with ${syllable}`,
-    autocomplete: "off",
-    autocapitalize: "none",
-    spellcheck: "false",
-    maxlength: "32",
-  });
-  const submit = () => onSubmit(input.value);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
-  setTimeout(() => { if (canType) input.focus(); }, 40);
-  return el("div", { class: "screen" }, [
-    livesBar(names, lives),
-    el("div", { class: "bomb-card" }, [
-      el("div", { class: "bomb-emoji" }, "💣"),
-      bombTimer(deadline, onExpire),
-      el("div", { class: "bomb-syllable" }, syllable),
-      el("p", { class: "muted center" }, `${names[active]}'s turn`),
-      canType ? el("div", { class: "stack" }, [
-        input,
-        error ? el("div", { class: "verdict nomatch" }, error) : null,
-        button("Submit word", { big: true, onClick: submit }),
-      ]) : el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Bomb is on the other phone..."]),
-    ]),
-    used.size ? el("p", { class: "muted center tiny" }, `${used.size} words used this bomb`) : null,
   ]);
 }
 
@@ -183,14 +163,14 @@ function online(ctx) {
   let lives = names.map(() => 3);
   let active = 0;
   let round = 0;
-  let used = new Set();
   let syllable = randomSyllable();
-  let deadline = Date.now();
   let phase = "turn";
   let timerToken = 0;
   let bombDeadline = 0;
+  let turnDeadline = 0;
   let wordCount = 0;
   let bombRound = 0;
+  let fuseStarted = false;
   setGameCleanup(() => { timerToken++; phase = "disposed"; });
 
   function nextAlive(from) {
@@ -199,71 +179,104 @@ function online(ctx) {
     return next;
   }
 
-  function startBomb(startActive = active) {
-    used = new Set();
-    wordCount = 0;
-    active = startActive;
-    bombDeadline = cfg.timerMode === "Per bomb"
-      ? Date.now() + fuseDurationMs(cfg, { bombRound })
-      : 0;
-    startTurn(active);
+  function currentDeadline() {
+    return cfg.timerMode === "Per bomb" ? bombDeadline : turnDeadline;
   }
 
-  function startTurn(startActive = active) {
-    if (!isHost) return;
-    phase = "turn";
-    active = lives[startActive] > 0 ? startActive : nextAlive(startActive);
-    syllable = randomSyllable();
-    deadline = cfg.timerMode === "Per bomb"
-      ? bombDeadline
-      : Date.now() + fuseDurationMs(cfg, { bombRound, wordsThisBomb: wordCount });
-    round++;
+  function scheduleExplode() {
+    if (!isHost || !fuseStarted) return;
     timerToken++;
     const token = timerToken;
-    session.send("bp_turn", { round, active, syllable, duration: deadline - Date.now(), lives, used: Array.from(used) });
-    showTurn();
+    const ms = Math.max(0, currentDeadline() - Date.now());
     setTimeout(() => {
-      if (token === timerToken && phase === "turn") explode(active);
-    }, deadline - Date.now() + 80);
+      if (token === timerToken && phase === "turn" && fuseStarted) explode(active);
+    }, ms + 80);
   }
 
-  function showTurn(error = "") {
-    screen(turnScreen({
-      names,
-      lives,
+  function publishTurn() {
+    const duration = fuseStarted
+      ? Math.max(0, currentDeadline() - Date.now())
+      : fuseDurationMs(cfg, { bombRound, wordsThisBomb: wordCount });
+    session.send("bp_turn", {
+      round,
       active,
       syllable,
-      deadline,
-      used,
-      canType: active === myIdx,
-      error,
-      onExpire: () => {},
-      onSubmit: (word) => {
-        if (isHost) handleSubmit({ round, player: myIdx, word });
-        else session.send("bp_submit", { round, player: myIdx, word });
-      },
-    }));
+      lives,
+      bombRound,
+      wordCount,
+      fuseStarted,
+      duration,
+    });
+    showTurn(duration);
+    if (isHost) scheduleExplode();
   }
 
-  function handleSubmit(m) {
-    if (!isHost || phase !== "turn" || m.round !== round || m.player !== active) return;
-    const clean = norm(m.word);
-    const err = validateWord(clean, syllable, used);
-    if (err) {
-      if (m.player === 0) showTurn(err);
-      else session.sendTo(m.player, "bp_invalid", { round, error: err });
+  function showTurn(duration = fuseStarted ? Math.max(0, currentDeadline() - Date.now()) : fuseDurationMs(cfg, { bombRound, wordsThisBomb: wordCount })) {
+    const running = fuseStarted;
+    const timerNode = running
+      ? bombTimer(Date.now() + duration, () => {})
+      : bombTimerStatic(fuseSeconds(cfg, { bombRound, wordsThisBomb: wordCount }));
+    const hint = running ? "Tap when you've said a word" : "Tap to start the fuse";
+    if (active === myIdx) {
+      screen(tapTurnScreen({
+        names, lives, active, syllable, timerNode, hint,
+        onTap: () => {
+          if (isHost) handleTap({ round, player: myIdx });
+          else session.send("bp_tap", { round, player: myIdx });
+        },
+      }));
       return;
     }
-    used.add(clean);
+    screen(tapWaitingScreen({ names, lives, active, syllable, timerNode }));
+  }
+
+  function startBomb(startActive = active) {
+    if (!isHost) return;
+    wordCount = 0;
+    fuseStarted = false;
+    bombDeadline = 0;
+    turnDeadline = 0;
+    active = startActive;
+    syllable = randomSyllable();
+    round++;
+    phase = "turn";
+    publishTurn();
+  }
+
+  function handleTap(m) {
+    if (!isHost || phase !== "turn" || m.round !== round || m.player !== active) return;
+    if (!fuseStarted) {
+      fuseStarted = true;
+      if (cfg.timerMode === "Per bomb") {
+        bombDeadline = Date.now() + fuseDurationMs(cfg, { bombRound });
+      } else {
+        turnDeadline = Date.now() + fuseDurationMs(cfg, { bombRound, wordsThisBomb: wordCount });
+      }
+      publishTurn();
+      return;
+    }
     wordCount++;
     haptic(10);
-    startTurn(nextAlive(active));
+    active = nextAlive(active);
+    syllable = randomSyllable();
+    if (cfg.timerMode === "Per bomb") {
+      if (Date.now() >= bombDeadline) {
+        explode(m.player);
+        return;
+      }
+    } else {
+      fuseStarted = true;
+      turnDeadline = Date.now() + fuseDurationMs(cfg, { bombRound, wordsThisBomb: wordCount });
+    }
+    round++;
+    publishTurn();
   }
 
   function explode(loser) {
     if (!isHost || phase !== "turn") return;
     phase = "boom";
     timerToken++;
+    fuseStarted = false;
     lives[loser] = Math.max(0, lives[loser] - 1);
     const payload = { round, loser, lives };
     session.send("bp_boom", payload);
@@ -273,20 +286,19 @@ function online(ctx) {
   function nextAfterBoom() {
     const alive = lives.map((life, i) => life > 0 ? i : -1).filter((i) => i >= 0);
     if (alive.length <= 1) {
-      const winner = alive[0] ?? 0;
       lives = names.map(() => 3);
-      active = (winner + 1) % names.length;
       bombRound = 0;
+      startBomb(((alive[0] ?? 0) + 1) % names.length);
     } else {
-      active = nextAlive(active);
       bombRound++;
+      startBomb(nextAlive(active));
     }
-    startBomb(active);
   }
 
   function showBoom(p) {
     lives = p.lives;
     phase = "boom";
+    fuseStarted = false;
     const ready = onlineReadyGate(session, `bp:${p.round}`, () => {
       if (isHost) nextAfterBoom();
     }, { label: "Ready ->" });
@@ -298,13 +310,15 @@ function online(ctx) {
     round = m.round;
     active = m.active;
     syllable = m.syllable;
-    deadline = Date.now() + m.duration;
     lives = m.lives;
-    used = new Set(m.used || []);
-    showTurn();
+    bombRound = m.bombRound ?? bombRound;
+    wordCount = m.wordCount ?? 0;
+    fuseStarted = !!m.fuseStarted;
+    if (fuseStarted && cfg.timerMode === "Per bomb") bombDeadline = Date.now() + m.duration;
+    if (fuseStarted && cfg.timerMode === "Per word") turnDeadline = Date.now() + m.duration;
+    showTurn(m.duration);
   });
-  session.on("bp_invalid", (m) => { if (m.round === round) showTurn(m.error); });
-  session.on("bp_submit", handleSubmit);
+  session.on("bp_tap", handleTap);
   session.on("bp_boom", showBoom);
 
   if (isHost) startBomb(0);
@@ -336,9 +350,6 @@ function local(ctx) {
     if (timer?.stop) timer.stop();
     timer = null;
   }
-  function turnFuseSec() {
-    return Math.max(cfg.minSec, fuseDurationMs(cfg, { bombRound, wordsThisBomb: wordCount }) / 1000);
-  }
   function clearBoomTimer() {
     if (boomTimer) clearTimeout(boomTimer);
     boomTimer = null;
@@ -351,19 +362,11 @@ function local(ctx) {
     const deadline = cfg.timerMode === "Per bomb" ? bombDeadline : turnDeadline;
     const timerNode = running
       ? bombTimer(deadline, explode)
-      : bombTimerStatic(turnFuseSec());
+      : bombTimerStatic(fuseSeconds(cfg, { bombRound, wordsThisBomb: wordCount }));
     if (timerNode.stop) timer = timerNode;
-    const hint = running
-      ? "Tap when you've said a word"
-      : "Tap to start the fuse";
-    screen(localTapScreen({
-      names,
-      lives,
-      active,
-      syllable,
-      timerNode,
-      hint,
-      onTap: handleTap,
+    const hint = running ? "Tap when you've said a word" : "Tap to start the fuse";
+    screen(tapTurnScreen({
+      names, lives, active, syllable, timerNode, hint, onTap: handleTap,
     }));
   }
 
@@ -378,11 +381,8 @@ function local(ctx) {
       showTurn();
       return;
     }
-    passTurn();
-  }
-
-  function passTurn() {
     wordCount++;
+    haptic(10);
     active = nextAlive(active);
     syllable = randomSyllable();
     if (cfg.timerMode === "Per bomb") {
@@ -391,6 +391,7 @@ function local(ctx) {
         return;
       }
     } else {
+      fuseStarted = true;
       turnDeadline = Date.now() + fuseDurationMs(cfg, { bombRound, wordsThisBomb: wordCount });
     }
     showTurn();
@@ -425,7 +426,7 @@ function local(ctx) {
     stopTimer();
     lives[active] = Math.max(0, lives[active] - 1);
     const loser = active;
-    screen(localBoomScreen(names, lives, loser));
+    screen(autoBoomScreen(names, lives, loser));
     boomTimer = setTimeout(() => continueAfterBoom(loser), 2200);
   }
 

@@ -761,6 +761,7 @@ p { margin: 0 0 .8em; }
   padding: 24px 20px; font-family: inherit; cursor: pointer; touch-action: manipulation; box-shadow: var(--shadow-sm);
 }
 .bomb-tap-card:active { transform: scale(.99); }
+.bomb-tap-card.bomb-tap-waiting { cursor: default; }
 .bomb-tap-name { font-size: clamp(1.6rem, 8vw, 2.4rem); }
 .bomb-tap-hint { color: var(--text-soft); font-size: .92rem; font-weight: 650; }
 
