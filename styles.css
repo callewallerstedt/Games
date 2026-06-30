@@ -742,6 +742,8 @@ p { margin: 0 0 .8em; }
 .bomb-timer b {
   position: absolute; inset: 0; display: grid; place-items: center; font-size: .68rem; color: #111827;
 }
+.bomb-timer.paused i { opacity: .45; }
+.bomb-tap-card .bomb-timer { width: min(100%, 280px); justify-self: center; }
 .bomb-syllable {
   justify-self: center; min-width: 104px; padding: 10px 18px; border-radius: 14px; background: #111827; color: #fff;
   font-size: 2.1rem; font-weight: 950; letter-spacing: .08em;
@@ -752,6 +754,15 @@ p { margin: 0 0 .8em; }
 .bomb-handoff strong { font-size: clamp(2rem, 10vw, 3.4rem); overflow-wrap: anywhere; }
 .bomb-handoff span { opacity: .86; }
 .bomb-handoff-kicker { font-size: .78rem; font-weight: 800; text-transform: uppercase; }
+.bomb-tap-screen { gap: 12px; }
+.bomb-tap-card {
+  width: 100%; min-height: min(52vh, 440px); border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--surface); color: var(--text); display: grid; place-items: center; align-content: center; gap: 12px;
+  padding: 24px 20px; font-family: inherit; cursor: pointer; touch-action: manipulation; box-shadow: var(--shadow-sm);
+}
+.bomb-tap-card:active { transform: scale(.99); }
+.bomb-tap-name { font-size: clamp(1.6rem, 8vw, 2.4rem); }
+.bomb-tap-hint { color: var(--text-soft); font-size: .92rem; font-weight: 650; }
 
 /* ---------- Flash Duel ---------- */
 .duel-demo { display: flex; justify-content: center; align-items: center; gap: 14px; font-weight: 900; }
