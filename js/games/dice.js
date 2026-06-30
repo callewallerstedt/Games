@@ -77,7 +77,6 @@ function localGame(ctx) {
   let dice = names.map(() => roll(START_DICE));
   let turn = 0;
   let bid = null;
-  let roundStarter = 0;
 
   const statusEl = pill(`${n} players`);
   const screen = (body) => render(el("div", { class: "screen" }, [header(ctx, statusEl), body]));
@@ -88,7 +87,6 @@ function localGame(ctx) {
     while (alive() > 1) {
       bid = null;
       while (cups[turn] === 0) turn = (turn + 1) % n;
-      roundStarter = turn;
       let roundDone = false;
 
       while (!roundDone) {
@@ -101,7 +99,7 @@ function localGame(ctx) {
           const totalDice = cups.reduce((a, b) => a + b, 0);
 
           function drawBid() {
-            const canLiar = bid && turn !== roundStarter;
+            const canLiar = !!bid;
             const canBid = beats({ qty, face }, bid);
             render(el("div", { class: "screen" }, [
               header(ctx, statusEl),
@@ -133,7 +131,7 @@ function localGame(ctx) {
         });
 
         if (action.type === "bid") {
-          bid = { qty: action.qty, face: action.face };
+          bid = { qty: action.qty, face: action.face, bidder: turn };
           turn = (turn + 1) % n;
           continue;
         }
@@ -141,15 +139,15 @@ function localGame(ctx) {
         // Liar called — reveal all dice
         const actual = countFace(dice.filter((_, i) => cups[i] > 0), bid.face);
         const bidValid = actual >= bid.qty;
-        const loser = bidValid ? turn : (turn + n - 1) % n;
+        const loser = bidValid ? turn : bid.bidder;
+        const revealedDice = dice.map((values) => values.slice());
         cups[loser]--;
-        dice = cups.map((c) => (c > 0 ? roll(c) : []));
 
         await new Promise((resolve) => {
-          const rows = names.map((name, i) => cups[i] > 0
+          const rows = names.map((name, i) => revealedDice[i].length
             ? el("div", { class: "card", style: "padding:12px" }, [
               el("div", { class: "who", style: "font-weight:700; margin-bottom:6px" }, name + (i === loser ? " 💀" : "")),
-              diceRow(dice[i]),
+              diceRow(revealedDice[i]),
             ])
             : el("div", { class: "muted center" }, `${name} — out ☠️`));
 
@@ -167,6 +165,7 @@ function localGame(ctx) {
           ]));
         });
 
+        dice = cups.map((c) => (c > 0 ? roll(c) : []));
         roundDone = true;
         turn = loser;
       }

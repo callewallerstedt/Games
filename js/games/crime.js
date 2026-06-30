@@ -125,7 +125,6 @@ function local(ctx) {
       ]));
     });
 
-    await passDevice(names[0], "Time to accuse — discuss first!");
     const accusations = [];
 
     for (let i = 0; i < names.length; i++) {

@@ -19,6 +19,13 @@ the game data then flows directly between the two phones.
 | 🕵️ **Impostor** | 3–10 players, one phone. Everyone answers the same question except one secret impostor with a different one. Discuss and vote who's the odd one out. |
 | 🐮 **Think Alike** | You both secretly answer the same simple question, then it reveals at the same time. Match = you think alike! (One phone supports 2–8 players with the classic Pink Cow 🐷.) |
 | 🎨 **Color Clue** | One person sees a secret colour and gives a 1–2 word clue; the other taps it on the spectrum. The closer the guess, the more points. Co-op — swap roles and beat your high score. |
+| ⚓ **Fleet Strike** | Place five ships, then trade coordinate shots. Separate attack and defence boards keep every hit, miss, and sunk ship clear. |
+| 🎲 **Liar's Dice** | Bid on all hidden dice, raise the stakes, or call the previous player's bluff. |
+| ⏱️ **Letter Rush** | Shout an answer in the category, tap its first letter, and pass the turn before time expires. |
+| 📏 **Closest Guess** | Secretly estimate surprising quantities; the closest answer scores. |
+| 🤯 **Crazy True or False** | Make a secret call on wild facts, reveal the explanation, and score correct answers. |
+| 📐 **Triangle Lines** | Connect neighboring dots, claim completed triangles, and take another turn when you score. |
+| 🔎 **Case Files** | Reveal evidence together, discuss the suspects, then make secret accusations. |
 
 Installable as a home-screen app (PWA): on iPhone, open in Safari → Share → **Add to Home
 Screen** for a full-screen, offline-capable experience.

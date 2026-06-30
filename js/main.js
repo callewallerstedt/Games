@@ -293,7 +293,10 @@ function localSetup(g) {
       el("div", { class: "card stack" }, [el("p", { class: "muted center" }, "Player names"), ...inputs]),
       el("div", { class: "footer-actions" },
         button("Start →", { big: true, onClick: () => {
-          const finalNames = names.slice(0, count).map((n, i) => (n || `Player ${i + 1}`).trim());
+          const finalNames = names.slice(0, count).map((n, i) => {
+            const trimmed = (n || "").trim();
+            return trimmed || `Player ${i + 1}`;
+          });
           saveName(finalNames[0]);
           const session = localSession(finalNames);
           g.mount({ mode: "local", isHost: true, session, players: finalNames, exit: home });

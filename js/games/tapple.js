@@ -83,7 +83,6 @@ function local(ctx) {
       left = left.filter((x) => x !== L);
       const p = alive[turnIdx % alive.length];
       if (left.length === 0) {
-        scores[p]++;
         celebrate();
         return endRound(p, true);
       }
