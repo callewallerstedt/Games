@@ -1,7 +1,7 @@
 // Letter Categories: fill selected categories with answers beginning with one letter.
 import {
   el, render, button, pill, connectionPill, passDevice, gameHeader, celebrate,
-  onlineReadyGate, localReadyGate, scoreboard, setGameCleanup,
+  scoreboard, setGameCleanup,
 } from "../ui.js";
 
 const ALL_CATEGORIES = [
@@ -31,10 +31,9 @@ const game = {
     <p>Every round uses one random letter and the categories selected by the host.</p>
     <ol>
       <li>Write one answer per category that starts with the round letter.</li>
-      <li>When time is up, the host reviews every answer in order.</li>
-      <li>For each answer the host can <b>decline</b> it or confirm it for <b>1</b> or <b>2 points</b>.</li>
-      <li>Unique answers usually earn 2 pts; shared answers usually earn 1 pt each — but the host decides.</li>
-      <li>Everyone sees the final scores, then readies up for a new letter.</li>
+      <li>When time is up, scores appear instantly: <b>unique = 2 pts</b>, <b>shared = 1 pt</b>, blank or wrong = 0.</li>
+      <li>The host can tap any score to change it (0 / 1 / 2) if they disagree.</li>
+      <li>The host taps <b>Next letter</b> and everyone jumps straight into the next round.</li>
     </ol>`,
   mount(ctx) { if (ctx.mode === "online") online(ctx); else local(ctx); },
 };
@@ -108,126 +107,31 @@ function computeSuggestedPoints(letter, categories, answers) {
   return points;
 }
 
-function suggestedHint(letter, answer, suggested) {
-  const value = normalize(answer);
-  if (!value) return "No answer — usually 0 pts";
-  if (!value.startsWith(letter.toLowerCase())) return `Doesn't start with ${letter} — usually 0 pts`;
-  if (suggested === 2) return "Nobody else wrote this — usually 2 pts";
-  if (suggested === 1) return "Someone else wrote the same thing — usually 1 pt";
-  return "Usually 0 pts";
-}
-
-function reviewItems(categories, names) {
-  const items = [];
-  categories.forEach((category, categoryIndex) => {
-    names.forEach((name, playerIndex) => {
-      items.push({ category, categoryIndex, name, playerIndex });
-    });
-  });
-  return items;
-}
-
-function hostReviewScreen(ctx, payload, onComplete) {
-  const { letter, categories, answers, names, suggestedPoints } = payload;
-  const items = reviewItems(categories, names);
-  let index = 0;
-  const finalPoints = answers.map(() => categories.map(() => 0));
-
-  function showStep() {
-    if (index >= items.length) {
-      onComplete(finalPoints);
-      return;
-    }
-
-    const item = items[index];
-    const answer = answers[item.playerIndex]?.[item.categoryIndex] || "";
-    const suggested = suggestedPoints[item.playerIndex]?.[item.categoryIndex] || 0;
-    const displayAnswer = answer || "No answer";
-    const decide = (points) => {
-      finalPoints[item.playerIndex][item.categoryIndex] = points;
-      index++;
-      showStep();
-    };
-
-    const categoryContext = names.map((name, playerIndex) => {
-      const rowAnswer = answers[playerIndex]?.[item.categoryIndex] || "No answer";
-      const isCurrent = playerIndex === item.playerIndex;
-      const itemIdx = items.findIndex((entry) => entry.categoryIndex === item.categoryIndex && entry.playerIndex === playerIndex);
-      const priorPoints = itemIdx >= 0 && itemIdx < index ? finalPoints[playerIndex][item.categoryIndex] : null;
-      return el("div", { class: `answer-card ${isCurrent ? "me category-review-current" : ""} ${priorPoints != null ? "category-review-done" : ""}` }, [
-        el("span", { class: "who" }, name),
-        el("span", { class: "val" }, `${rowAnswer}${priorPoints ? `  +${priorPoints}` : priorPoints === 0 ? "  0" : ""}`),
-      ]);
-    });
-
-    render(el("div", { class: "screen" }, [
-      gameHeader(ctx, game, ctx._statusNode),
-      el("div", { class: "category-result-head" }, [
-        el("div", { class: "category-letter small" }, letter),
-        el("div", {}, [
-          el("h2", {}, "Host review"),
-          el("p", { class: "muted" }, `${item.category} · ${index + 1} of ${items.length}`),
-        ]),
-      ]),
-      el("section", { class: "category-result" }, [
-        el("h3", {}, item.category),
-        ...categoryContext,
-      ]),
-      el("div", { class: "category-review-focus card" }, [
-        el("div", { class: "pill" }, "Your call"),
-        el("div", { class: "category-review-answer" }, [
-          el("span", { class: "who" }, item.name),
-          el("span", { class: "val" }, displayAnswer),
-        ]),
-        el("p", { class: "muted tiny center" }, suggestedHint(letter, answer, suggested)),
-      ]),
-      el("div", { class: "footer-actions" }, [
-        el("div", { class: "btn-row" }, [
-          button("Decline", { variant: "secondary", big: true, onClick: () => decide(0) }),
-          button("1 pt", { big: true, onClick: () => decide(1) }),
-          button("2 pts", { big: true, onClick: () => decide(2) }),
-        ]),
-      ]),
-    ]));
-  }
-
-  showStep();
-}
-
-function waitingForHostReview() {
-  return el("div", { class: "card center" }, [
-    el("div", { class: "spinner" }),
-    el("p", { class: "muted" }, "The host is reviewing everyone's answers."),
-  ]);
-}
-
-function applyPoints(points, scores) {
-  points.forEach((row, playerIndex) => {
-    row.forEach((point) => { if (point) scores[playerIndex] += point; });
-  });
-}
-
-function resultView(ctx, payload, nextNode) {
+function resultView(ctx, payload, opts = {}) {
   const categoryBlocks = payload.categories.map((category, categoryIndex) => el("section", { class: "category-result" }, [
     el("h3", {}, category),
     ...payload.names.map((name, playerIndex) => {
       const answer = payload.answers[playerIndex]?.[categoryIndex] || "No answer";
       const point = payload.points[playerIndex]?.[categoryIndex] || 0;
+      const label = point ? `+${point}` : "0";
+      const pointEl = opts.editable
+        ? el("button", { class: `category-point edit p${point}`, title: "Tap to change points (0 / 1 / 2)", onClick: () => opts.onAdjust(playerIndex, categoryIndex) }, label)
+        : el("span", { class: `category-point p${point}` }, point ? `+${point}` : "");
       return el("div", { class: `answer-card ${point ? "me" : ""}` }, [
         el("span", { class: "who" }, name),
-        el("span", { class: "val" }, `${answer}${point ? `  +${point}` : ""}`),
+        el("span", { class: "val" }, answer),
+        pointEl,
       ]);
     }),
   ]));
-  if (payload.points.some((row) => row.some(Boolean))) celebrate();
   return el("div", { class: "screen" }, [
     el("div", { class: "category-result-head" }, [
       el("div", { class: "category-letter small" }, payload.letter),
-      el("div", {}, [el("h2", {}, "Round results"), el("p", { class: "muted" }, "Scores chosen by the host for this round.")]),
+      el("div", {}, [el("h2", {}, "Round results"), el("p", { class: "muted" }, opts.editable ? "Tap any score to change it." : "Scores chosen by the host.")]),
     ]),
     el("div", { class: "category-results" }, categoryBlocks),
     scoreboard(payload.names, payload.scores, { colors: ctx.playerColors }),
-    el("div", { class: "footer-actions" }, nextNode),
+    el("div", { class: "footer-actions" }, opts.footer),
   ]);
 }
 
@@ -238,10 +142,14 @@ function online(ctx) {
     ? session.settings.categories : DEFAULT_CATEGORIES;
   const seconds = Number(session.settings.roundSeconds) || 60;
   const scores = names.map(() => 0);
+  let baseScores = scores.slice();   // scores before the current round
+  let roundPoints = null;            // editable per-answer points for this round
   let answers = names.map(() => null);
   let letter = "A";
   let round = 0;
   let hostTimeout = null;
+  let celebrated = false;
+  let revealed = false;
   let disposed = false;
   setGameCleanup(() => { disposed = true; clearTimeout(hostTimeout); });
   const status = connectionPill();
@@ -252,6 +160,8 @@ function online(ctx) {
   function startRound() {
     if (!session.isHost) return;
     clearTimeout(hostTimeout);
+    celebrated = false;
+    revealed = false;
     round++;
     letter = randomLetter();
     answers = names.map(() => null);
@@ -274,42 +184,67 @@ function online(ctx) {
     if (session.isHost && answers.every((row) => row != null)) finishRound();
   }
 
+  // Time's up (or everyone submitted): auto-score and reveal results instantly —
+  // no slow one-by-one host review, no waiting on every player to ready up.
   function finishRound() {
-    if (!session.isHost || disposed) return;
+    if (!session.isHost || disposed || revealed) return;
+    revealed = true;
     clearTimeout(hostTimeout);
     answers = answers.map((row) => row || categories.map(() => ""));
-    const suggestedPoints = computeSuggestedPoints(letter, categories, answers);
-    const reviewPayload = { round, letter, categories, answers, names, suggestedPoints };
-    session.send("cat_review", reviewPayload);
-    startHostReview(reviewPayload);
+    baseScores = scores.slice();
+    roundPoints = computeSuggestedPoints(letter, categories, answers);
+    applyRoundPoints();
+    broadcastReveal();
+    showHostResult();
   }
 
-  function startHostReview(reviewPayload) {
-    if (session.isHost) {
-      hostReviewScreen(ctx, reviewPayload, (points) => {
-        applyPoints(points, scores);
-        const payload = { round, letter, categories, answers, points, scores: scores.slice(), names };
-        session.send("cat_reveal", payload);
-        showResult(payload);
-      });
-    } else {
-      screen(waitingForHostReview());
-    }
+  function applyRoundPoints() {
+    baseScores.forEach((base, playerIndex) => {
+      scores[playerIndex] = base + roundPoints[playerIndex].reduce((sum, point) => sum + point, 0);
+    });
   }
 
-  function showResult(payload) {
-    screen(resultView(ctx, payload,
-      onlineReadyGate(session, `cat:${payload.round}`, startRound, { label: "Ready for next letter" })));
+  function broadcastReveal() {
+    session.send("cat_reveal", { round, letter, categories, answers, points: roundPoints, scores: scores.slice(), names });
   }
 
-  session.on("cat_round", (message) => { if (!session.isHost) { round = message.round; letter = message.letter; answers = names.map(() => null); showForm(message); } });
+  // Host taps a score → cycle 0 → 1 → 2, rescore, and push the update live.
+  function adjustPoint(playerIndex, categoryIndex) {
+    roundPoints[playerIndex][categoryIndex] = (roundPoints[playerIndex][categoryIndex] + 1) % 3;
+    applyRoundPoints();
+    broadcastReveal();
+    showHostResult();
+  }
+
+  function maybeCelebrate(payload) {
+    if (!celebrated && payload.points.some((row) => row.some(Boolean))) { celebrated = true; celebrate(); }
+  }
+
+  function showHostResult() {
+    const payload = { round, letter, categories, answers, points: roundPoints, scores: scores.slice(), names };
+    maybeCelebrate(payload);
+    screen(resultView(ctx, payload, {
+      editable: true,
+      onAdjust: adjustPoint,
+      footer: button("Next letter ▶", { big: true, onClick: startRound }),
+    }));
+  }
+
+  function showGuestResult(payload) {
+    maybeCelebrate(payload);
+    screen(resultView(ctx, payload, {
+      editable: false,
+      footer: el("div", { class: "waiting compact-wait" }, [el("div", { class: "spinner" }), "Host is picking the next letter…"]),
+    }));
+  }
+
+  session.on("cat_round", (message) => { if (!session.isHost) { celebrated = false; round = message.round; letter = message.letter; answers = names.map(() => null); showForm(message); } });
   session.on("cat_answers", (message) => {
     if (!session.isHost || message.round !== round || answers[message.from] != null) return;
     answers[message.from] = message.values;
     maybeFinish();
   });
-  session.on("cat_review", (message) => { if (!session.isHost) startHostReview(message); });
-  session.on("cat_reveal", (message) => { if (!session.isHost) showResult(message); });
+  session.on("cat_reveal", (message) => { if (!session.isHost) showGuestResult(message); });
 
   if (session.isHost) startRound();
   else screen(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Waiting for the first letter"]));
@@ -338,16 +273,21 @@ function local(ctx) {
       answers[i] = await new Promise((resolve) => screen(answerForm(letter, categories, names[i], seconds, resolve)));
       if (disposed) return;
     }
-    const suggestedPoints = computeSuggestedPoints(letter, categories, answers);
-    await passDevice(names[0], "Review everyone's answers");
-    if (disposed) return;
-    const points = await new Promise((resolve) => {
-      hostReviewScreen(ctx, { letter, categories, answers, names, suggestedPoints }, resolve);
-    });
-    if (disposed) return;
-    applyPoints(points, scores);
-    const payload = { round, letter, categories, answers, points, scores: scores.slice(), names };
-    screen(resultView(ctx, payload, localReadyGate(names, playRound, { label: "Next letter" })));
+    const points = computeSuggestedPoints(letter, categories, answers);
+    if (names.length > 1) { await passDevice(names[0], "Review & score this round"); if (disposed) return; }
+    const base = scores.slice();
+    const apply = () => base.forEach((b, pi) => { scores[pi] = b + points[pi].reduce((sum, point) => sum + point, 0); });
+    apply();
+    let celebratedLocal = false;
+    const show = () => {
+      if (!celebratedLocal && points.some((row) => row.some(Boolean))) { celebratedLocal = true; celebrate(); }
+      screen(resultView(ctx, { round, letter, categories, answers, points, scores: scores.slice(), names }, {
+        editable: true,
+        onAdjust: (pi, ci) => { points[pi][ci] = (points[pi][ci] + 1) % 3; apply(); show(); },
+        footer: button("Next letter ▶", { big: true, onClick: () => { if (!disposed) playRound(); } }),
+      }));
+    };
+    show();
   }
 
   playRound();
