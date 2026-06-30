@@ -156,8 +156,15 @@ export function passDevice(name, subtitle) {
   });
 }
 
-export function scoreChip(n, label) {
-  return el("div", { class: "score-chip" }, [el("span", { class: "n" }, String(n)), el("span", { class: "l" }, label)]);
+export const PLAYER_COLORS = ["#6c5ce7", "#ff5e98", "#14b88a", "#f0a13b"];
+
+export function scoreChip(n, label, opts = {}) {
+  const { active, color } = opts;
+  const style = active && color ? `--chip-color:${color}` : undefined;
+  return el("div", {
+    class: `score-chip ${active ? "active" : ""}`.trim(),
+    style,
+  }, [el("span", { class: "n" }, String(n)), el("span", { class: "l" }, label)]);
 }
 
 // Register the service worker (offline + installable). Safe no-op if unsupported.

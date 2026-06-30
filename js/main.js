@@ -1,5 +1,5 @@
 // Router + home hub + lobby (mode choice, P2P host/guest handshake, local setup).
-import { el, render, topbar, button, connectionPill, toast, rulesModal, registerSW, iosInstallTip, applyTheme, themePicker, modal } from "./ui.js";
+import { el, render, topbar, button, connectionPill, toast, rulesModal, registerSW, iosInstallTip, applyTheme, themePicker, modal, PLAYER_COLORS } from "./ui.js";
 import { GAMES, getGame } from "./games/registry.js";
 import { hostRoom, joinRoom } from "./net.js";
 import { onlineSession, localSession } from "./session.js";
@@ -265,15 +265,39 @@ function localSetup(g) {
   const min = g.minPlayers;
   let count = Math.max(min, 2);
   const names = [];
+  const colors = PLAYER_COLORS.slice();
   for (let i = 0; i < max; i++) names[i] = `Player ${i + 1}`;
   if (rememberedName()) names[0] = rememberedName();
+
+  function colorSwatches(playerIdx) {
+    return el("div", { class: "color-swatches", role: "group", "aria-label": `Color for player ${playerIdx + 1}` },
+      PLAYER_COLORS.map((hex) =>
+        el("button", {
+          type: "button",
+          class: `color-swatch ${colors[playerIdx] === hex ? "on" : ""}`,
+          style: `background:${hex}`,
+          "aria-label": hex,
+          "aria-pressed": colors[playerIdx] === hex ? "true" : "false",
+          onClick: () => {
+            const other = colors.indexOf(hex);
+            if (other >= 0 && other !== playerIdx) colors[other] = colors[playerIdx];
+            colors[playerIdx] = hex;
+            draw();
+          },
+        }),
+      ),
+    );
+  }
 
   function draw() {
     const inputs = [];
     for (let i = 0; i < count; i++) {
       const input = el("input", { class: "field", value: names[i], maxlength: "16",
         oninput: (e) => { names[i] = e.target.value; } });
-      inputs.push(el("div", { class: "name-row" }, [el("span", { style: "width:28px;text-align:center" }, ["👤"]), input]));
+      const row = g.pickColors
+        ? [colorSwatches(i), input]
+        : [el("span", { style: "width:28px;text-align:center" }, ["👤"]), input];
+      inputs.push(el("div", { class: "name-row" }, row));
     }
     const counter = max > min
       ? el("div", { class: "card" }, [
@@ -290,7 +314,10 @@ function localSetup(g) {
       topbar({ onBack: () => go(`#/g/${g.id}`), right: el("button", { class: "iconbtn", onClick: () => rulesModal(g) }, "?") }),
       el("div", { class: "hero" }, [el("h1", {}, `${g.emoji} ${g.title}`), el("div", { class: "tag" }, "One phone — pass it around.")]),
       counter,
-      el("div", { class: "card stack" }, [el("p", { class: "muted center" }, "Player names"), ...inputs]),
+      el("div", { class: "card stack" }, [
+        el("p", { class: "muted center" }, g.pickColors ? "Player names & colors" : "Player names"),
+        ...inputs,
+      ]),
       el("div", { class: "footer-actions" },
         button("Start →", { big: true, onClick: () => {
           const finalNames = names.slice(0, count).map((n, i) => {
@@ -299,7 +326,14 @@ function localSetup(g) {
           });
           saveName(finalNames[0]);
           const session = localSession(finalNames);
-          g.mount({ mode: "local", isHost: true, session, players: finalNames, exit: home });
+          g.mount({
+            mode: "local",
+            isHost: true,
+            session,
+            players: finalNames,
+            playerColors: colors.slice(0, count),
+            exit: home,
+          });
         } })),
     ]);
   }
