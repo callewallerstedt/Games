@@ -1,37 +1,51 @@
 // Peer-to-peer transport built on the vendored PeerJS (window.Peer).
-// No app server: PeerJS's public broker is used only for the initial handshake;
-// gameplay data then flows phone-to-phone over a WebRTC data channel.
+// Host accepts multiple guests (star topology); each guest connects only to host.
 //
-// Both host and guest expose the same tiny surface:
-//   { id, send(obj), onData(fn), onStatus(fn), onClose(fn), destroy() }
-// status is one of: "waiting" | "connected" | "reconnecting" | "closed"
+// Surface:
+//   { id, isHost, send(obj), broadcast(obj), onData(fn), onStatus(fn), peerCount, destroy() }
 
 function makeBus() {
-  const handlers = { data: [], status: [], close: [] };
+  const handlers = { data: [], status: [], close: [], join: [], leave: [] };
   return {
     on: (type, fn) => { handlers[type].push(fn); },
     emit: (type, ...args) => { handlers[type].forEach((fn) => fn(...args)); },
   };
 }
 
-// --- Host: create a room and wait for one guest to connect. ---
-export function hostRoom() {
+// --- Host: create a room; accept up to maxGuests connections. ---
+export function hostRoom({ maxGuests = 9 } = {}) {
   const bus = makeBus();
   const peer = new window.Peer(undefined, { debug: 1 });
-  let conn = null;
+  const peers = new Map(); // peerId -> conn
   let status = "waiting";
 
   const setStatus = (s) => { status = s; bus.emit("status", s); };
+  const updateStatus = () => setStatus(peers.size > 0 ? "connected" : "waiting");
 
   const api = {
     id: null,
     isHost: true,
-    send: (obj) => { if (conn && conn.open) conn.send(obj); },
+    peerCount: () => peers.size,
+    send: (obj, peerId = null) => {
+      if (peerId) {
+        const c = peers.get(peerId);
+        if (c?.open) c.send(obj);
+        return;
+      }
+      peers.forEach((c) => { if (c.open) c.send(obj); });
+    },
+    broadcast: (obj) => api.send(obj),
     onData: (fn) => bus.on("data", fn),
+    onPeerJoin: (fn) => bus.on("join", fn),
+    onPeerLeave: (fn) => bus.on("leave", fn),
     onStatus: (fn) => bus.on("status", fn),
     onClose: (fn) => bus.on("close", fn),
-    ready: null, // promise resolving to room id
-    destroy: () => { try { conn && conn.close(); } catch {} try { peer.destroy(); } catch {} },
+    ready: null,
+    destroy: () => {
+      peers.forEach((c) => { try { c.close(); } catch {} });
+      peers.clear();
+      try { peer.destroy(); } catch {}
+    },
   };
 
   api.ready = new Promise((resolve, reject) => {
@@ -40,16 +54,21 @@ export function hostRoom() {
   });
 
   peer.on("connection", (c) => {
-    // Accept (re)connections — replace any previous connection so a dropped or
-    // reopened guest can rejoin the same room.
-    if (conn && conn !== c) { try { conn.close(); } catch {} }
-    conn = c;
-    c.on("open", () => setStatus("connected"));
-    c.on("data", (d) => bus.emit("data", d));
-    c.on("close", () => { setStatus("reconnecting"); });
+    if (peers.size >= maxGuests) { try { c.close(); } catch {} return; }
+    const peerId = c.peer;
+    peers.set(peerId, c);
+    c.on("open", () => { updateStatus(); bus.emit("join", peerId); });
+    c.on("data", (d) => bus.emit("data", { ...d, _from: peerId }));
+    c.on("close", () => {
+      peers.delete(peerId);
+      updateStatus();
+      bus.emit("leave", peerId);
+    });
   });
 
-  peer.on("disconnected", () => { if (status !== "closed") { setStatus("reconnecting"); try { peer.reconnect(); } catch {} } });
+  peer.on("disconnected", () => {
+    if (status !== "closed") { setStatus("reconnecting"); try { peer.reconnect(); } catch {} }
+  });
   peer.on("close", () => { setStatus("closed"); bus.emit("close"); });
 
   return api;
@@ -83,17 +102,24 @@ export function joinRoom(hostId) {
   peer.on("open", () => connect());
   peer.on("disconnected", () => { if (status !== "closed") { try { peer.reconnect(); } catch {} } });
   peer.on("error", (err) => {
-    // peer-unavailable means the host id is gone.
     if (err && err.type === "peer-unavailable") retry();
   });
 
   return {
     id: null,
     isHost: false,
-    send: (obj) => { if (conn && conn.open) conn.send(obj); },
+    peerCount: () => (conn?.open ? 1 : 0),
+    send: (obj) => { if (conn?.open) conn.send(obj); },
+    broadcast: (obj) => { if (conn?.open) conn.send(obj); },
     onData: (fn) => bus.on("data", fn),
+    onPeerJoin: () => {},
+    onPeerLeave: () => {},
     onStatus: (fn) => bus.on("status", fn),
     onClose: (fn) => bus.on("close", fn),
-    destroy: () => { status = "closed"; try { conn && conn.close(); } catch {} try { peer.destroy(); } catch {} },
+    destroy: () => {
+      status = "closed";
+      try { conn?.close(); } catch {}
+      try { peer.destroy(); } catch {}
+    },
   };
 }

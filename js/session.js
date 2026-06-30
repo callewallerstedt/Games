@@ -1,39 +1,72 @@
-// A "session" is what a game talks to. It hides whether players are on one phone
-// (local) or two phones (online P2P), and carries player names + a typed message bus.
+// Session API games use — hides local vs online and carries players, settings, message bus.
 
-export function onlineSession(transport, { isHost, myName, partnerName, myColor, partnerColor, joinUrl }) {
+export function onlineSession(transport, opts) {
+  const {
+    isHost,
+    myIndex = 0,
+    roster = [],
+    settings = {},
+    joinUrl = null,
+    resolveFrom = (msg) => msg.from,
+  } = opts;
+
   const handlers = {};
   const statusHandlers = [];
+
   transport.onData((msg) => {
-    if (msg && msg.t && handlers[msg.t]) handlers[msg.t].forEach((fn) => fn(msg));
+    if (!msg?.t) return;
+    const enriched = { ...msg, from: resolveFrom(msg) ?? msg.from };
+    if (handlers[msg.t]) handlers[msg.t].forEach((fn) => fn(enriched));
   });
   transport.onStatus((s) => statusHandlers.forEach((fn) => fn(s)));
+
+  const players = roster.map((p) => p.name);
+  const playerColors = roster.map((p) => p.color);
+  const other = roster.find((_, i) => i !== myIndex);
 
   return {
     mode: "online",
     isHost,
-    myName,
-    partnerName,
-    joinUrl: joinUrl || null, // so we can re-show the rejoin code mid-game
-    // players[0] is always the host, players[1] the guest — a stable shared order.
-    players: isHost ? [myName, partnerName] : [partnerName, myName],
-    playerColors: isHost ? [myColor, partnerColor] : [partnerColor, myColor],
-    // Remember the last message we sent so the host can replay the current
-    // screen to a guest who reconnects (generic resync).
-    send: (t, payload = {}) => { const msg = { t, ...payload }; transport._lastSent = msg; transport.send(msg); },
+    myIndex,
+    myName: roster[myIndex]?.name || "You",
+    partnerName: other?.name || "Partner",
+    joinUrl,
+    roster,
+    settings,
+    players,
+    playerColors,
+    playerCount: roster.length,
+    send: (t, payload = {}) => {
+      const msg = { t, from: myIndex, ...payload };
+      transport._lastSent = msg;
+      if (isHost) transport.broadcast(msg);
+      else transport.send(msg);
+    },
+    sendPrivate: (t, payload = {}) => {
+      const msg = { t, from: myIndex, ...payload };
+      if (isHost) transport.broadcast(msg);
+      else transport.send(msg);
+    },
     on: (t, fn) => { (handlers[t] ||= []).push(fn); },
     onStatus: (fn) => statusHandlers.push(fn),
     transport,
   };
 }
 
-export function localSession(players, playerColors = []) {
+export function localSession(players, playerColors = [], settings = {}) {
   return {
     mode: "local",
     isHost: true,
+    myIndex: 0,
+    myName: players[0] || "Player 1",
+    partnerName: players[1] || "Player 2",
     players,
     playerColors,
+    roster: players.map((name, i) => ({ name, color: playerColors[i] })),
+    settings,
+    playerCount: players.length,
     send() {},
+    sendPrivate() {},
     on() {},
     onStatus() {},
   };
