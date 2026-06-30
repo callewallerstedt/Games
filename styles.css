@@ -156,6 +156,16 @@ p { margin: 0 0 .8em; }
   display: grid; place-items: center; box-shadow: var(--shadow-sm); flex: none; transition: transform .08s ease;
 }
 .iconbtn:active { transform: scale(.92); }
+.iconbtn.scan-btn { padding: 0; }
+.mini-qr-icon {
+  display: grid;
+  grid-template-columns: repeat(11, 1fr);
+  gap: 0.55px;
+  width: 22px;
+  height: 22px;
+}
+.mini-qr-icon i { display: block; border-radius: 0.6px; }
+.mini-qr-icon i.on { background: currentColor; }
 
 /* ---------- Buttons ---------- */
 .btn {
