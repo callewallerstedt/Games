@@ -31,8 +31,8 @@ const game = {
     <p>Every round uses one random letter and the categories selected by the host.</p>
     <ol>
       <li>Write one answer per category that starts with the round letter.</li>
-      <li>A valid unique answer scores <b>1 point</b>.</li>
-      <li>If two or more players write the same answer in a category, nobody scores for it.</li>
+      <li>A valid answer nobody else wrote scores <b>2 points</b>.</li>
+      <li>If two or more players write the same answer in a category, each of them scores <b>1 point</b>.</li>
       <li>Everyone reviews the answers, then readies up for a new letter.</li>
     </ol>`,
   mount(ctx) { if (ctx.mode === "online") online(ctx); else local(ctx); },
@@ -83,7 +83,7 @@ function answerForm(letter, categories, playerName, seconds, onSubmit) {
   return el("div", { class: "screen" }, [
     el("div", { class: "category-round-head" }, [
       el("div", { class: "category-letter", "aria-label": `Letter ${letter}` }, letter),
-      el("div", {}, [el("strong", {}, playerName), el("div", { class: "muted tiny" }, "Unique answers score")]),
+      el("div", {}, [el("strong", {}, playerName), el("div", { class: "muted tiny" }, "Unique = 2 pts · Shared = 1 pt")]),
       timer,
     ]),
     el("div", { class: "category-form" }, rows),
@@ -98,10 +98,13 @@ function scoreAnswers(letter, categories, answers, scores) {
     const counts = new Map();
     values.forEach((value) => { if (value) counts.set(value, (counts.get(value) || 0) + 1); });
     values.forEach((value, playerIndex) => {
-      const valid = value.startsWith(letter.toLowerCase());
-      if (valid && counts.get(value) === 1) {
-        points[playerIndex][categoryIndex] = 1;
-        scores[playerIndex]++;
+      const valid = value && value.startsWith(letter.toLowerCase());
+      if (!valid) return;
+      const count = counts.get(value);
+      const earned = count === 1 ? 2 : count >= 2 ? 1 : 0;
+      if (earned) {
+        points[playerIndex][categoryIndex] = earned;
+        scores[playerIndex] += earned;
       }
     });
   });
@@ -116,7 +119,7 @@ function resultView(ctx, payload, nextNode) {
       const point = payload.points[playerIndex]?.[categoryIndex] || 0;
       return el("div", { class: `answer-card ${point ? "me" : ""}` }, [
         el("span", { class: "who" }, name),
-        el("span", { class: "val" }, `${answer}${point ? "  +1" : ""}`),
+        el("span", { class: "val" }, `${answer}${point ? `  +${point}` : ""}`),
       ]);
     }),
   ]));
@@ -124,7 +127,7 @@ function resultView(ctx, payload, nextNode) {
   return el("div", { class: "screen" }, [
     el("div", { class: "category-result-head" }, [
       el("div", { class: "category-letter small" }, payload.letter),
-      el("div", {}, [el("h2", {}, "Round results"), el("p", { class: "muted" }, "Unique valid answers scored.")]),
+      el("div", {}, [el("h2", {}, "Round results"), el("p", { class: "muted" }, "Unique answers = 2 pts · Shared answers = 1 pt each.")]),
     ]),
     el("div", { class: "category-results" }, categoryBlocks),
     scoreboard(payload.names, payload.scores, { colors: ctx.playerColors }),

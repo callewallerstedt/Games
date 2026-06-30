@@ -19,6 +19,15 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="icon" href="icon-192.png" />
 
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("together_theme") || "auto";
+        if (t === "cute") t = "pink";
+        if (t !== "auto") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>

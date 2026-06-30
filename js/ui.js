@@ -299,19 +299,30 @@ export const THEMES = [
   { value: "auto", label: "System" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
+  { value: "pink", label: "Pink" },
 ];
+const THEME_COLORS = {
+  light: "#f5f7f8",
+  dark: "#111718",
+  pink: "#fceef3",
+  autoLight: "#f5f7f8",
+  autoDark: "#111718",
+};
 export const getTheme = () => {
-  const saved = localStorage.getItem("together_theme") || "auto";
+  let saved = localStorage.getItem("together_theme") || "auto";
+  if (saved === "cute") saved = "pink";
   return THEMES.some((theme) => theme.value === saved) ? saved : "auto";
 };
 export function applyTheme(t) {
   t = t || getTheme();
+  if (t === "cute") t = "pink";
   if (t === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", t);
   document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
-    if (t === "light") meta.setAttribute("content", "#f5f7f8");
-    else if (t === "dark") meta.setAttribute("content", "#17142b");
-    else meta.setAttribute("content", meta.media?.includes("dark") ? "#17142b" : "#eee9ff");
+    if (t === "light") meta.setAttribute("content", THEME_COLORS.light);
+    else if (t === "dark") meta.setAttribute("content", THEME_COLORS.dark);
+    else if (t === "pink") meta.setAttribute("content", THEME_COLORS.pink);
+    else meta.setAttribute("content", meta.media?.includes("dark") ? THEME_COLORS.autoDark : THEME_COLORS.autoLight);
   });
   try { localStorage.setItem("together_theme", t); } catch {}
 }
