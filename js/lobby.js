@@ -140,6 +140,7 @@ function roomScreen({ game, joinUrl, roster, settings, profile, isHost, started,
           el("summary", {}, "Invite players"),
           el("div", { class: "invite-content" }, [
             qrFor(joinUrl),
+            el("p", { class: "muted tiny center" }, "Scan with a phone camera to join"),
             el("div", { class: "code-chip" }, joinUrl),
             button("Copy invite link", { variant: "secondary", onClick: () => copy(joinUrl) }),
           ]),
@@ -423,7 +424,10 @@ export function reconnectSheet(session) {
   const body = [];
   if (session.joinUrl) {
     body.push(el("p", { class: "muted center" }, "Reopen this link to reconnect to the room."));
-    body.push(el("div", { class: "center" }, qrFor(session.joinUrl)));
+    body.push(el("div", { class: "stack center" }, [
+      qrFor(session.joinUrl),
+      el("p", { class: "muted tiny" }, "Scan with a phone camera to join"),
+    ]));
     body.push(el("div", { class: "code-chip" }, session.joinUrl));
     body.push(button("Copy invite link", { variant: "secondary", onClick: () => copy(session.joinUrl) }));
   } else {

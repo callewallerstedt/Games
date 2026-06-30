@@ -2,7 +2,9 @@
 import { el } from "./ui.js";
 
 export function qrFor(text, size = 200) {
-  const box = el("div", { class: "qr-box" });
+  const wrap = el("div", { class: "qr-wrap" });
+  const box = el("div", { class: "qr-box", style: `--qr-size:${size}px` });
+  wrap.append(box);
   // QRCode renders into the element on construction.
   // eslint-disable-next-line no-new
   new window.QRCode(box, {
@@ -13,5 +15,5 @@ export function qrFor(text, size = 200) {
     colorLight: "#ffffff",
     correctLevel: window.QRCode.CorrectLevel.M,
   });
-  return box;
+  return wrap;
 }
