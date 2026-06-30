@@ -3,7 +3,7 @@
 // Online = 2 players, simultaneous reveal + mind-meld streak.
 // Local = 2–8 players, pass-the-phone, majority scores, odd-one-out gets the Pink Cow 🐷.
 
-import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, shuffle, celebrate, onlineReadyGate, localReadyGate } from "../ui.js";
+import { el, render, button, pill, connectionPill, passDevice, gameHeader, shuffle, celebrate, onlineReadyGate, localReadyGate, scoreboard } from "../ui.js";
 import { HERD_QUESTIONS } from "../data/herd-questions.js";
 
 const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -53,50 +53,53 @@ function answerInput(onDone, placeholder = "Your answer…") {
   return { wrap: el("div", { class: "stack" }, [input, btn]), input };
 }
 
-/* ---------------- ONLINE (2 players, host-authoritative) ---------------- */
+/* ---------------- ONLINE (2-8 players, host-authoritative) ---------------- */
 function onlineGame(ctx) {
-  const { session, exit } = ctx;
-  const isHost = session.isHost;
-  const deck = shuffle(HERD_QUESTIONS);
+  const { session } = ctx;
+  const names = session.players;
+  let deck = shuffle(HERD_QUESTIONS);
   let qi = 0;
-  let stats = { rounds: 0, matches: 0, streak: 0 };
-  let pending = { a1: null, a2: null }; // a1 = host, a2 = guest (host only)
+  let round = 0;
+  const scores = names.map(() => 0);
+  let answers = names.map(() => null);
   let currentQ = "";
-
   const status = connectionPill();
   session.onStatus(status.set);
+  const screen = (body) => render(el("div", { class: "screen" }, [header(ctx, status.node), body]));
 
-  function screen(body) {
-    render(el("div", { class: "screen" }, [header(ctx, status.node), body]));
-  }
-
-  // ---- Host drives rounds ----
   function hostNewRound() {
-    if (qi >= deck.length) qi = 0;
+    if (!session.isHost) return;
+    if (qi >= deck.length) { deck = shuffle(HERD_QUESTIONS); qi = 0; }
     currentQ = deck[qi++];
-    pending = { a1: null, a2: null };
-    session.send("herd_round", { q: currentQ });
+    answers = names.map(() => null);
+    round++;
+    session.send("herd_round", { q: currentQ, round });
     showAnswer(currentQ);
   }
 
   function hostTryReveal() {
-    if (pending.a1 == null || pending.a2 == null) return;
-    const match = norm(pending.a1) === norm(pending.a2);
-    stats.rounds++;
-    if (match) { stats.matches++; stats.streak++; } else { stats.streak = 0; }
-    const payload = { a1: pending.a1, a2: pending.a2, match, stats };
+    if (!session.isHost || answers.some((answer) => answer == null)) return;
+    const groups = new Map();
+    answers.forEach((answer, i) => {
+      const key = norm(answer);
+      groups.set(key, [...(groups.get(key) || []), i]);
+    });
+    const grouped = Array.from(groups.values());
+    const largest = Math.max(...grouped.map((group) => group.length));
+    const cows = names.map(() => false);
+    if (largest > 1) grouped.filter((group) => group.length === largest).forEach((group) => group.forEach((i) => scores[i]++));
+    grouped.filter((group) => group.length === 1).forEach((group) => group.forEach((i) => { cows[i] = true; }));
+    const payload = { q: currentQ, answers: answers.slice(), scores: scores.slice(), cows, largest, round };
     session.send("herd_reveal", payload);
     showReveal(payload);
   }
 
-  // ---- Shared screens ----
   function showAnswer(q) {
-    let mine = null;
     const { wrap } = answerInput((val) => {
-      mine = val;
-      if (isHost) { pending.a1 = val; } else { session.send("herd_answer", { text: val }); }
-      showWaiting(q, mine);
-      if (isHost) hostTryReveal();
+      answers[session.myIndex] = val;
+      if (session.isHost) hostTryReveal();
+      else session.send("herd_answer", { text: val, round });
+      showWaiting(q, val);
     });
     screen(el("div", { class: "card" }, [
       el("div", { class: "pill" }, "Secret answer"),
@@ -109,55 +112,42 @@ function onlineGame(ctx) {
     screen(el("div", { class: "card" }, [
       el("div", { class: "q-big" }, q),
       el("div", { class: "answer-card" }, [el("span", { class: "who" }, "You said"), el("span", { class: "val" }, mine)]),
-      el("div", { class: "waiting" }, [el("div", { class: "spinner" }), `Waiting for ${session.partnerName}…`]),
+      el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Waiting for the rest of the room"]),
     ]));
   }
 
-  function showReveal(p) {
-    if (p.match) celebrate();
-    const a1 = el("div", { class: "answer-card reveal-anim" }, [
-      el("span", { class: "who" }, isHost ? "You" : session.partnerName),
-      el("span", { class: "val" }, p.a1),
-    ]);
-    const a2 = el("div", { class: "answer-card reveal-anim" }, [
-      el("span", { class: "who" }, isHost ? session.partnerName : "You"),
-      el("span", { class: "val" }, p.a2),
-    ]);
-    const verdict = el("div", { class: `verdict ${p.match ? "match" : "nomatch"}` },
-      p.match ? "🧠 You think alike!" : "🐮 Off the herd!");
-    const next = onlineReadyGate(session, `herd:${p.stats.rounds}`, () => {
-      if (isHost) hostNewRound();
-    }, { label: "Ready for next ->" });
-    // Host can manually count a near-miss (typos / phrasing) as a match.
-    const override = (!p.match && isHost) ? button("✅ Close enough — count it", { variant: "secondary", onClick: () => {
-      stats.matches++; stats.streak = (stats.streak || 0) + 1;
-      const np = { a1: p.a1, a2: p.a2, match: true, stats };
-      session.send("herd_override", np); showReveal(np);
-    } }) : null;
+  function showReveal(payload) {
+    if (payload.largest > 1) celebrate();
+    const rows = payload.answers.map((answer, i) => el("div", { class: `answer-card reveal-anim ${payload.cows[i] ? "" : "me"}` }, [
+      el("span", { class: "who" }, names[i]),
+      el("span", { class: "val" }, answer),
+    ]));
     screen(el("div", { class: "screen" }, [
-      el("div", { class: "q-big" }, currentQ),
-      el("div", { class: "stack" }, [a1, a2]),
-      verdict,
-      p.stats.streak > 1 ? el("div", { class: "center streak" }, `🔥 ${p.stats.streak} in a row!`) : null,
-      el("div", { class: "scorebar" }, [
-        scoreChip(p.stats.matches, "matched"),
-        scoreChip(p.stats.rounds, "rounds"),
-      ]),
-      el("div", { class: "footer-actions" }, [override, next]),
+      el("div", { class: "q-big" }, payload.q),
+      el("div", { class: "stack" }, rows),
+      el("div", { class: `verdict ${payload.largest > 1 ? "match" : "nomatch"}` },
+        payload.largest > 1 ? `Largest match: ${payload.largest}` : "Everyone went their own way"),
+      scoreboard(names, payload.scores, { colors: ctx.playerColors }),
+      el("div", { class: "footer-actions" }, onlineReadyGate(session, `herd:${payload.round}`, hostNewRound, { label: "Ready for next" })),
     ]));
   }
 
-  // ---- Wire messages ----
-  session.on("herd_round", (m) => { currentQ = m.q; showAnswer(m.q); });
-  session.on("herd_reveal", (m) => { stats = m.stats; showReveal(m); });
-  session.on("herd_override", (m) => { stats = m.stats; showReveal(m); });
-  if (isHost) {
-    session.on("herd_answer", (m) => { pending.a2 = m.text; hostTryReveal(); });
-  }
+  session.on("herd_round", (message) => {
+    if (session.isHost) return;
+    currentQ = message.q;
+    round = message.round;
+    answers = names.map(() => null);
+    showAnswer(message.q);
+  });
+  session.on("herd_answer", (message) => {
+    if (!session.isHost || message.round !== round) return;
+    answers[message.from] = message.text;
+    hostTryReveal();
+  });
+  session.on("herd_reveal", (message) => { if (!session.isHost) showReveal(message); });
 
-  // Kick off
-  if (isHost) hostNewRound();
-  else screen(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), `Waiting for ${session.partnerName} to start…`]));
+  if (session.isHost) hostNewRound();
+  else screen(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Waiting for the host to start"]));
 }
 
 /* ---------------- LOCAL (2–8 players, pass the phone) ---------------- */

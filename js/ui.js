@@ -20,6 +20,14 @@ export function el(tag, props = {}, children = []) {
 
 export const $app = () => document.getElementById("app");
 
+let activeGameCleanup = null;
+export function setGameCleanup(cleanup) { activeGameCleanup = typeof cleanup === "function" ? cleanup : null; }
+export function disposeActiveGame() {
+  const cleanup = activeGameCleanup;
+  activeGameCleanup = null;
+  try { cleanup?.(); } catch {}
+}
+
 export function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
 
 export const PLAYER_COLORS = [
@@ -47,23 +55,10 @@ export function render(content) {
   window.scrollTo(0, 0);
 }
 
-// Inline logo mark — a heart-shaped chat bubble, matching the app icon.
-export function logoMark(size = 26) {
-  const span = el("span", { class: "logo", style: `width:${size}px;height:${size}px` });
-  span.innerHTML = `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">
-    <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="var(--brand)"/><stop offset="1" stop-color="var(--accent)"/>
-    </linearGradient></defs>
-    <path fill="url(#lg)" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-    <circle cx="8.5" cy="9" r="1.05" fill="#fff"/><circle cx="12" cy="9" r="1.05" fill="#fff"/><circle cx="15.5" cy="9" r="1.05" fill="#fff"/>
-  </svg>`;
-  return span;
-}
-
 export function topbar({ onBack, right } = {}) {
   return el("div", { class: "topbar" }, [
-    onBack ? el("button", { class: "iconbtn", "aria-label": "Back", onClick: onBack }, "‹") : null,
-    el("div", { class: "brand" }, [logoMark(24), "Together"]),
+    onBack ? el("button", { class: "iconbtn", "aria-label": "Back", title: "Back", onClick: onBack }, "‹") : null,
+    el("div", { class: "brand" }, "Party Games"),
     el("div", { class: "spacer" }),
     right || null,
   ]);
@@ -137,7 +132,7 @@ export function gameHeader(ctx, game, statusNode) {
     statusNode || null,
     el("button", { class: "iconbtn", "aria-label": "Rules", onClick: () => rulesModal(game) }, "?"),
   ]);
-  return topbar({ onBack: ctx.exit, right });
+  return topbar({ onBack: () => { disposeActiveGame(); ctx.exit(); }, right });
 }
 
 // Segmented control. options: [{value,label}]. Returns { node, get() }.
@@ -163,13 +158,14 @@ export function passDevice(name, subtitle) {
   return new Promise((resolve) => {
     const color = playerColor(name);
     const overlay = el("div", { class: "pass", style: `--player-color:${color}` }, [
-      el("div", { class: "hand" }, "🤝"),
-      el("div", {}, "Pass the phone to"),
+      el("div", { class: "pass-kicker" }, "Private turn"),
+      el("div", { class: "pass-label" }, "Pass the device to"),
       el("div", { class: "who" }, name),
       subtitle ? el("div", { class: "sub" }, subtitle) : null,
+      el("div", { class: "pass-privacy" }, `Only ${name} should look at the screen.`),
       el("button", {
         class: "btn big", onClick: () => { overlay.remove(); resolve(); },
-      }, `I'm ${name} — ready`),
+      }, `I’m ${name} - continue`),
     ]);
     document.body.append(overlay);
   });
@@ -185,41 +181,63 @@ export function scoreChip(n, label, opts = {}) {
   }, [el("span", { class: "n" }, String(n)), el("span", { class: "l" }, label)]);
 }
 
-export function onlineReadyGate(session, gateId, onBothReady, opts = {}) {
+export function scoreboard(players, scores, opts = {}) {
+  const activeIndex = Number.isInteger(opts.activeIndex) ? opts.activeIndex : -1;
+  return el("div", { class: "scorebar shared-scoreboard", "aria-label": "Scoreboard" },
+    players.map((name, i) => scoreChip(scores[i] ?? 0, name, {
+      active: i === activeIndex,
+      color: opts.colors?.[i],
+    })));
+}
+
+export function onlineReadyGate(session, gateId, onAllReady, opts = {}) {
   const label = opts.label || "Ready";
-  const waitingLabel = opts.waitingLabel || `Waiting for ${session.partnerName}...`;
-  const myIdx = session.isHost ? 0 : 1;
-  let mine = false;
-  let theirs = false;
+  const count = Math.max(1, session.playerCount || session.players?.length || 2);
+  const myIdx = session.myIndex ?? (session.isHost ? 0 : 1);
+  const ready = new Set();
   let done = false;
-  const status = el("div", { class: "ready-status muted tiny center" }, "Both players must be ready.");
+  const status = el("div", { class: "ready-status muted tiny center" }, `0/${count} ready`);
   const btn = button(label, {
     big: true,
     onClick: () => {
-      if (mine || done) return;
-      mine = true;
+      if (ready.has(myIdx) || done) return;
+      ready.add(myIdx);
       btn.disabled = true;
-      btn.textContent = waitingLabel;
-      status.textContent = "You are ready.";
-      session.send("ready_gate", { id: gateId, from: myIdx });
+      btn.textContent = "Ready - waiting for others";
+      updateStatus();
+      if (session.isHost) publishState();
+      else session.sendPrivate("ready_gate", { id: gateId });
       maybeGo();
     },
   });
   function finish() {
     if (done) return;
     done = true;
-    onBothReady();
+    onAllReady();
+  }
+  function updateStatus() {
+    status.textContent = ready.size >= count ? "Everyone is ready." : `${ready.size}/${count} ready`;
+  }
+  function publishState() {
+    if (session.isHost) session.sendPrivate("ready_gate_state", { id: gateId, ready: Array.from(ready) });
   }
   function maybeGo() {
-    if (!session.isHost || !mine || !theirs || done) return;
-    session.send("ready_gate_go", { id: gateId });
+    if (!session.isHost || ready.size < count || done) return;
+    session.sendPrivate("ready_gate_go", { id: gateId });
     finish();
   }
   session.on("ready_gate", (m) => {
-    if (!m || m.id !== gateId || m.from === myIdx || done) return;
-    theirs = true;
-    status.textContent = mine ? "Both ready." : `${session.partnerName} is ready.`;
+    if (!session.isHost || !m || m.id !== gateId || done) return;
+    ready.add(m.from);
+    updateStatus();
+    publishState();
     maybeGo();
+  });
+  session.on("ready_gate_state", (m) => {
+    if (!m || m.id !== gateId || done) return;
+    ready.clear();
+    (m.ready || []).forEach((i) => ready.add(i));
+    updateStatus();
   });
   session.on("ready_gate_go", (m) => {
     if (!m || m.id !== gateId) return;
@@ -229,21 +247,9 @@ export function onlineReadyGate(session, gateId, onBothReady, opts = {}) {
 }
 
 export function localReadyGate(names, onAllReady, opts = {}) {
-  const ready = new Set();
-  const label = opts.label || "Ready";
-  const status = el("div", { class: "ready-status muted tiny center" }, `0/${names.length} ready`);
-  const buttons = names.map((name, i) => button(`${name}: ${label}`, {
-    variant: "secondary",
-    onClick: (event) => {
-      if (ready.has(i)) return;
-      ready.add(i);
-      event.currentTarget.disabled = true;
-      event.currentTarget.textContent = `${name}: ready`;
-      status.textContent = `${ready.size}/${names.length} ready`;
-      if (ready.size === names.length) onAllReady();
-    },
-  }));
-  return el("div", { class: "ready-gate local-ready-gate" }, [status, ...buttons]);
+  const label = !opts.label || opts.label.toLowerCase() === "ready" ? "Continue" : opts.label;
+  return el("div", { class: "ready-gate local-ready-gate" },
+    button(label, { big: true, onClick: onAllReady }));
 }
 
 // Register the service worker (offline + installable). Safe no-op if unsupported.
@@ -290,17 +296,20 @@ export function iosInstallTip() {
 
 // ---------- Theme ----------
 export const THEMES = [
-  { value: "auto", label: "✨ Default" },
-  { value: "cute", label: "🌸 Cute" },
-  { value: "dark", label: "🌙 Dark" },
+  { value: "auto", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
 ];
-export const getTheme = () => localStorage.getItem("together_theme") || "auto";
+export const getTheme = () => {
+  const saved = localStorage.getItem("together_theme") || "auto";
+  return THEMES.some((theme) => theme.value === saved) ? saved : "auto";
+};
 export function applyTheme(t) {
   t = t || getTheme();
   if (t === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", t);
   document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
-    if (t === "cute") meta.setAttribute("content", "#ffe0ef");
+    if (t === "light") meta.setAttribute("content", "#f5f7f8");
     else if (t === "dark") meta.setAttribute("content", "#17142b");
     else meta.setAttribute("content", meta.media?.includes("dark") ? "#17142b" : "#eee9ff");
   });
@@ -309,7 +318,7 @@ export function applyTheme(t) {
 // Theme picker sheet. onChange called after applying.
 export function themePicker(onChange) {
   const seg = segmented(THEMES, getTheme(), (v) => { applyTheme(v); onChange && onChange(v); });
-  return modal("🎨 Theme", [el("p", { class: "muted" }, "Pick a vibe for the whole app."), seg.node]);
+  return modal("Appearance", [el("p", { class: "muted" }, "Choose how the app looks on this device."), seg.node]);
 }
 
 // ---------- Delight: confetti + haptics ----------

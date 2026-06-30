@@ -1,7 +1,7 @@
 // "Fleet Strike" — classic Battleship with direct placement, clear shot ownership,
 // and host-authoritative online play. Local mode passes one phone between turns.
 
-import { el, render, topbar, button, pill, connectionPill, passDevice, rulesModal, celebrate, haptic } from "../ui.js";
+import { el, render, topbar, button, pill, connectionPill, passDevice, rulesModal, celebrate, haptic, onlineReadyGate } from "../ui.js";
 
 const SIZE = 10;
 const COLS = "ABCDEFGHIJ";
@@ -378,6 +378,11 @@ function onlineGame(ctx) {
   let gameOver = false;
   let lastAction = null;
 
+  const gameOverFooter = (message, win = false) => el("div", { class: `bs-outcome ${win ? "win" : ""}`.trim() }, [
+    el("b", {}, message),
+    onlineReadyGate(session, "bs:gameover", () => { if (isHost) ctx.exit(); }, { label: "Ready to return to room" }),
+  ]);
+
   function waiting(msg) {
     render(el("div", { class: "screen" }, [
       header(ctx, status.node),
@@ -437,7 +442,7 @@ function onlineGame(ctx) {
     session.send("bs_result", { r, c, hit: result.hit, sunk, sunkCells, won, nextTurn: me });
     if (won) {
       gameOver = true;
-      refreshBattle(outcomeFooter(`${session.partnerName} sank your fleet.`, "Back to games", ctx.exit), `${session.partnerName} wins`);
+      refreshBattle(gameOverFooter(`${session.partnerName} sank your fleet.`), `${session.partnerName} wins`);
     } else {
       turn = me;
       refreshBattle();
@@ -456,7 +461,7 @@ function onlineGame(ctx) {
     if (won) {
       gameOver = true;
       celebrate();
-      refreshBattle(outcomeFooter("Enemy fleet destroyed.", "Back to games", ctx.exit, true), "You win!");
+      refreshBattle(gameOverFooter("Enemy fleet destroyed.", true), "You win!");
       return;
     }
     turn = nextTurn;

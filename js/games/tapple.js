@@ -1,5 +1,5 @@
 // "Letter Rush" — Tapple-style category + A–Z race against the clock.
-import { el, render, button, gameHeader, passDevice, segmented, scoreChip, shuffle, celebrate, haptic, localReadyGate } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, segmented, scoreChip, shuffle, celebrate, haptic, localReadyGate, onlineReadyGate, connectionPill, scoreboard, setGameCleanup } from "../ui.js";
 import { TAPPLE_THEMES, LETTERS } from "../data/tapple-themes.js";
 
 const game = {
@@ -10,7 +10,8 @@ const game = {
   blurb: "Name things in a category — tap a letter before time runs out!",
   minPlayers: 2,
   maxPlayers: 8,
-  modes: ["local"],
+  modes: ["local", "online"],
+  lobbySettings: [{ key: "timer", label: "Seconds per turn", type: "choice", options: [8, 10, 15, 20], default: 10 }],
   estMinutes: 15,
   rulesHTML: `
     <p>A category appears (e.g. <b>Animals</b>). Letters A–Z stay on the board.</p>
@@ -21,8 +22,144 @@ const game = {
       <li>Three strikes and you're out. Last player standing wins the round!</li>
     </ol>
     <p class="muted">No typing — just shout it and tap. Pick your timer speed before you start.</p>`,
-  mount(ctx) { local(ctx); },
+  mount(ctx) { if (ctx.mode === "online") online(ctx); else local(ctx); },
 };
+
+function online(ctx) {
+  const { session } = ctx;
+  const names = session.players;
+  const scores = names.map(() => 0);
+  const timerSec = Number(session.settings.timer) || 10;
+  const strikesMax = 3;
+  let themes = shuffle(TAPPLE_THEMES);
+  let themeIndex = 0;
+  let round = 0;
+  let theme = "";
+  let strikes = names.map(() => 0);
+  let alive = names.map((_, i) => i);
+  let letters = LETTERS.slice();
+  let active = 0;
+  let deadline = 0;
+  let token = 0;
+  setGameCleanup(() => { token++; });
+  const status = connectionPill();
+  session.onStatus(status.set);
+  const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
+
+  function state() {
+    return { round, theme, strikes: strikes.slice(), alive: alive.slice(), letters: letters.slice(), active, duration: Math.max(0, deadline - Date.now()), scores: scores.slice() };
+  }
+
+  function nextAlive(current) {
+    const position = alive.indexOf(current);
+    return alive[(position + 1 + alive.length) % alive.length];
+  }
+
+  function startRound() {
+    if (!session.isHost) return;
+    if (themeIndex >= themes.length) { themes = shuffle(TAPPLE_THEMES); themeIndex = 0; }
+    round++;
+    theme = themes[themeIndex++];
+    strikes = names.map(() => 0);
+    alive = names.map((_, i) => i);
+    letters = LETTERS.slice();
+    active = (round - 1) % names.length;
+    startTurn();
+  }
+
+  function startTurn() {
+    if (!session.isHost) return;
+    deadline = Date.now() + timerSec * 1000;
+    const myToken = ++token;
+    const payload = state();
+    session.send("tapple_state", payload);
+    showState(payload);
+    setTimeout(() => { if (myToken === token) bust(active); }, timerSec * 1000 + 80);
+  }
+
+  function useLetter(letter, player) {
+    if (!session.isHost || player !== active || !letters.includes(letter)) return;
+    token++;
+    letters = letters.filter((item) => item !== letter);
+    haptic(10);
+    if (!letters.length) return endRound(active, true);
+    active = nextAlive(active);
+    startTurn();
+  }
+
+  function bust(player) {
+    if (!session.isHost || player !== active) return;
+    token++;
+    strikes[player]++;
+    if (strikes[player] >= strikesMax) alive = alive.filter((index) => index !== player);
+    if (alive.length <= 1) return endRound(alive[0] ?? -1, false);
+    active = alive.includes(player) ? nextAlive(player) : alive[0];
+    startTurn();
+  }
+
+  function endRound(winner, cleared) {
+    token++;
+    if (winner >= 0) scores[winner]++;
+    const payload = { ...state(), winner, cleared };
+    session.send("tapple_end", payload);
+    showEnd(payload);
+  }
+
+  function timerNode(duration) {
+    const number = el("div", { class: "timer-num" }, String(Math.ceil(duration / 1000)));
+    const fill = el("i", { style: "width:100%" });
+    const bar = el("div", { class: "timer-bar" }, fill);
+    const started = Date.now();
+    const id = setInterval(() => {
+      if (!number.isConnected) { clearInterval(id); return; }
+      const left = Math.max(0, duration - (Date.now() - started));
+      number.textContent = String(Math.ceil(left / 1000));
+      fill.style.width = `${(left / duration) * 100}%`;
+      if (!left) clearInterval(id);
+    }, 100);
+    return el("div", {}, [number, bar]);
+  }
+
+  function showState(payload) {
+    round = payload.round; theme = payload.theme; strikes = payload.strikes; alive = payload.alive;
+    letters = payload.letters; active = payload.active; deadline = Date.now() + payload.duration;
+    const canPlay = session.myIndex === active;
+    screen(el("div", { class: "screen" }, [
+      scoreboard(names, payload.scores, { activeIndex: active, colors: ctx.playerColors }),
+      el("div", { class: "card" }, [
+        el("div", { class: "kicker" }, "Category"),
+        el("div", { class: "q-big" }, theme),
+        el("div", { class: "pill center" }, `${names[active]}'s turn`),
+        timerNode(payload.duration),
+        el("div", { class: "letter-grid" }, letters.map((letter) => el("button", {
+          class: "letter-cell", type: "button", disabled: !canPlay,
+          onClick: () => { if (session.isHost) useLetter(letter, session.myIndex); else session.send("tapple_letter", { round, letter }); },
+        }, letter))),
+      ]),
+      el("p", { class: "muted center tiny" }, canPlay ? "Say an answer aloud, then tap its letter." : `${names[active]} has the board.`),
+    ]));
+  }
+
+  function showEnd(payload) {
+    if (payload.winner >= 0) celebrate();
+    screen(el("div", { class: "screen" }, [
+      el("div", { class: "card center" }, [
+        el("div", { class: "verdict match" }, payload.cleared ? "Board cleared" : "Round over"),
+        el("p", {}, payload.winner >= 0 ? `${names[payload.winner]} wins the round.` : "Nobody survived the round."),
+        el("p", { class: "muted" }, `Category: ${payload.theme}`),
+      ]),
+      scoreboard(names, payload.scores, { colors: ctx.playerColors }),
+      el("div", { class: "footer-actions" }, onlineReadyGate(session, `tapple:${payload.round}`, startRound, { label: "Ready for next" })),
+    ]));
+  }
+
+  session.on("tapple_state", (message) => { if (!session.isHost) showState(message); });
+  session.on("tapple_letter", (message) => { if (session.isHost && message.round === round) useLetter(message.letter, message.from); });
+  session.on("tapple_end", (message) => { if (!session.isHost) showEnd(message); });
+
+  if (session.isHost) startRound();
+  else screen(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Waiting for the host to start"]));
+}
 
 function local(ctx) {
   const names = ctx.players;
@@ -60,6 +197,7 @@ function local(ctx) {
     let leftSec = timerSec;
 
     function clearTimer() { if (timerId) { clearInterval(timerId); timerId = null; } }
+    setGameCleanup(clearTimer);
 
     function bust() {
       clearTimer();

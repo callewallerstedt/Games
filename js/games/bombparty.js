@@ -1,6 +1,6 @@
 // "JKLM BombParty" - type a word containing the syllable before the bomb pops.
 
-import { el, render, button, pill, connectionPill, gameHeader, passDevice, scoreChip, haptic, celebrate, onlineReadyGate, localReadyGate } from "../ui.js";
+import { el, render, button, pill, connectionPill, gameHeader, scoreChip, haptic, celebrate, onlineReadyGate, localReadyGate, setGameCleanup } from "../ui.js";
 
 const SYLLABLES = [
   "ab", "ac", "ad", "al", "am", "an", "ap", "ar", "at", "be", "bi", "bo", "br",
@@ -13,7 +13,6 @@ const SYLLABLES = [
 
 const norm = (s) => (s || "").trim().toLowerCase().replace(/[^a-z]/g, "");
 const randomSyllable = () => SYLLABLES[Math.floor(Math.random() * SYLLABLES.length)];
-const randomDuration = () => 12000 + Math.floor(Math.random() * 11000);
 
 const game = {
   id: "bombparty",
@@ -24,6 +23,10 @@ const game = {
   minPlayers: 2,
   maxPlayers: 8,
   modes: ["local", "online"],
+  lobbySettings: [
+    { key: "fuseSeconds", label: "Starting fuse", type: "choice", options: [10, 15, 20, 30, 45], default: 20 },
+    { key: "timerMode", label: "Timer mode", type: "choice", options: ["Per bomb", "Per word"], default: "Per bomb" },
+  ],
   estMinutes: 8,
   rulesHTML: `
     <p>A syllable appears, like <b>tri</b> or <b>sp</b>. The active player must type a word containing it before time runs out.</p>
@@ -32,7 +35,8 @@ const game = {
       <li>No repeated words in the same bomb.</li>
       <li>A valid word passes the bomb to the next player with a fresh syllable.</li>
       <li>If the bomb explodes on you, you lose a life.</li>
-    </ol>`,
+    </ol>
+    <p><b>Per bomb</b> keeps one fuse burning across every handoff. <b>Per word</b> resets the fuse, but each successful word removes one second down to a five-second minimum.</p>`,
   mount(ctx) { ctx.mode === "online" ? online(ctx) : local(ctx); },
 };
 
@@ -117,12 +121,14 @@ function boomScreen(names, lives, loser, nextNode) {
 function online(ctx) {
   const { session } = ctx;
   const isHost = session.isHost;
-  const myIdx = isHost ? 0 : 1;
+  const myIdx = session.myIndex;
   const names = session.players;
+  const fuseMs = (Number(session.settings.fuseSeconds) || 20) * 1000;
+  const timerMode = session.settings.timerMode || "Per bomb";
   const status = connectionPill();
   session.onStatus(status.set);
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
-  let lives = [3, 3];
+  let lives = names.map(() => 3);
   let active = 0;
   let round = 0;
   let used = new Set();
@@ -130,13 +136,32 @@ function online(ctx) {
   let deadline = Date.now();
   let phase = "turn";
   let timerToken = 0;
+  let bombDeadline = 0;
+  let wordCount = 0;
+  setGameCleanup(() => { timerToken++; phase = "disposed"; });
+
+  function nextAlive(from) {
+    let next = from;
+    do { next = (next + 1) % names.length; } while (lives[next] <= 0);
+    return next;
+  }
+
+  function startBomb(startActive = active) {
+    used = new Set();
+    wordCount = 0;
+    active = startActive;
+    bombDeadline = timerMode === "Per bomb" ? Date.now() + fuseMs : 0;
+    startTurn(active);
+  }
 
   function startTurn(startActive = active) {
     if (!isHost) return;
     phase = "turn";
-    active = startActive;
+    active = lives[startActive] > 0 ? startActive : nextAlive(startActive);
     syllable = randomSyllable();
-    deadline = Date.now() + randomDuration();
+    deadline = timerMode === "Per bomb"
+      ? bombDeadline
+      : Date.now() + Math.max(5000, fuseMs - wordCount * 1000);
     round++;
     timerToken++;
     const token = timerToken;
@@ -171,12 +196,13 @@ function online(ctx) {
     const err = validateWord(clean, syllable, used);
     if (err) {
       if (m.player === 0) showTurn(err);
-      else session.send("bp_invalid", { round, error: err });
+      else session.sendTo(m.player, "bp_invalid", { round, error: err });
       return;
     }
     used.add(clean);
+    wordCount++;
     haptic(10);
-    startTurn(1 - active);
+    startTurn(nextAlive(active));
   }
 
   function explode(loser) {
@@ -190,13 +216,15 @@ function online(ctx) {
   }
 
   function nextAfterBoom() {
-    used = new Set();
     const alive = lives.map((life, i) => life > 0 ? i : -1).filter((i) => i >= 0);
     if (alive.length <= 1) {
-      lives = [3, 3];
-      active = alive[0] === 0 ? 1 : 0;
+      const winner = alive[0] ?? 0;
+      lives = names.map(() => 3);
+      active = (winner + 1) % names.length;
+    } else {
+      active = nextAlive(active);
     }
-    startTurn(active);
+    startBomb(active);
   }
 
   function showBoom(p) {
@@ -222,12 +250,14 @@ function online(ctx) {
   session.on("bp_submit", handleSubmit);
   session.on("bp_boom", showBoom);
 
-  if (isHost) startTurn(0);
-  else screen(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), `Waiting for ${session.partnerName} to start...`]));
+  if (isHost) startBomb(0);
+  else screen(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Waiting for the host to start..."]));
 }
 
 function local(ctx) {
   const names = ctx.players;
+  const fuseMs = (Number(ctx.settings?.fuseSeconds) || 20) * 1000;
+  const timerMode = ctx.settings?.timerMode || "Per bomb";
   const statusEl = pill(`${names.length} players`);
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, statusEl), body]));
   let lives = names.map(() => 3);
@@ -236,17 +266,56 @@ function local(ctx) {
   let syllable = randomSyllable();
   let deadline = Date.now();
   let timer = null;
+  let bombDeadline = 0;
+  let wordCount = 0;
 
   function nextAlive(from) {
     let i = from;
     do { i = (i + 1) % names.length; } while (lives[i] <= 0);
     return i;
   }
-  async function showTurn(error = "") {
+  function stopTimer() {
     if (timer?.stop) timer.stop();
-    await passDevice(names[active], "The bomb is yours");
+    timer = null;
+  }
+  setGameCleanup(stopTimer);
+
+  function startBomb(startActive = active) {
+    stopTimer();
+    active = startActive;
+    used = new Set();
+    wordCount = 0;
+    bombDeadline = timerMode === "Per bomb" ? Date.now() + fuseMs : 0;
+    showHandoff();
+  }
+
+  function showHandoff() {
+    stopTimer();
+    const timerNode = timerMode === "Per bomb" ? bombTimer(bombDeadline, explode) : null;
+    timer = timerNode;
+    screen(el("div", { class: "screen bomb-handoff-screen" }, [
+      livesBar(names, lives),
+      el("button", { class: "bomb-handoff", onClick: () => beginTurn() }, [
+        el("span", { class: "bomb-handoff-kicker" }, "Pass the device"),
+        el("strong", {}, names[active]),
+        el("span", {}, "Tap when you have the bomb"),
+      ]),
+      timerNode,
+      el("p", { class: "muted center tiny" }, timerMode === "Per bomb" ? "The fuse keeps burning while you pass." : "Your word timer starts when you tap."),
+    ]));
+  }
+
+  function beginTurn(error = "") {
+    stopTimer();
     syllable = randomSyllable();
-    deadline = Date.now() + randomDuration();
+    deadline = timerMode === "Per bomb"
+      ? bombDeadline
+      : Date.now() + Math.max(5000, fuseMs - wordCount * 1000);
+    showWordInput(error);
+  }
+
+  function showWordInput(error = "") {
+    stopTimer();
     const body = turnScreen({
       names,
       lives,
@@ -260,26 +329,27 @@ function local(ctx) {
       onSubmit: (word) => {
         const clean = norm(word);
         const err = validateWord(clean, syllable, used);
-        if (err) { showTurn(err); return; }
+        if (err) { showWordInput(err); return; }
         used.add(clean);
+        wordCount++;
         active = nextAlive(active);
-        showTurn();
+        showHandoff();
       },
     });
     timer = body.querySelector(".bomb-timer");
     screen(body);
   }
   function explode() {
-    if (timer?.stop) timer.stop();
+    stopTimer();
     lives[active] = Math.max(0, lives[active] - 1);
     const loser = active;
     const alive = lives.map((life, i) => life > 0 ? i : -1).filter((i) => i >= 0);
     const next = alive.length <= 1
-      ? localReadyGate(names, () => { lives = names.map(() => 3); used = new Set(); active = 0; showTurn(); }, { label: "ready" })
-      : localReadyGate(names, () => { used = new Set(); active = nextAlive(active); showTurn(); }, { label: "ready" });
+      ? localReadyGate(names, () => { lives = names.map(() => 3); startBomb((loser + 1) % names.length); }, { label: "Rematch" })
+      : localReadyGate(names, () => startBomb(nextAlive(active)), { label: "Next bomb" });
     screen(boomScreen(names, lives, loser, next));
   }
-  showTurn();
+  startBomb(0);
 }
 
 export default game;

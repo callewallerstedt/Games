@@ -1,7 +1,7 @@
 // "Liar's Dice" — bluff, bid, and call bluff on hidden dice. Last cup standing wins.
 // Pass the phone so nobody peeks. Works brilliantly with 2–5 players.
 
-import { el, render, topbar, button, pill, passDevice, rulesModal } from "../ui.js";
+import { el, render, topbar, button, pill, passDevice, rulesModal, connectionPill, onlineReadyGate, scoreboard, celebrate } from "../ui.js";
 
 const START_DICE = 5;
 const FACES = [1, 2, 3, 4, 5, 6];
@@ -13,7 +13,7 @@ const game = {
   blurb: "Bid on everyone's hidden dice — then call their bluff!",
   minPlayers: 2,
   maxPlayers: 5,
-  modes: ["local"],
+  modes: ["local", "online"],
   estMinutes: 12,
   rulesHTML: `
     <p>Each player rolls dice in secret. On your turn, make a bid about <b>all dice
@@ -25,9 +25,10 @@ const game = {
       <li>When someone calls Liar, all dice reveal. Wrong caller loses a die.</li>
       <li>Last player with dice wins! 🏆</li>
     </ol>
-    <p class="muted">Pure bluffing energy — stare them down through the phone.</p>`,
+    <p class="muted">In an online room, every player sees only their own dice. Voice chat handles the bluffing.</p>`,
   mount(ctx) {
-    localGame(ctx);
+    if (ctx.mode === "online") onlineGame(ctx);
+    else localGame(ctx);
   },
 };
 
@@ -68,6 +69,150 @@ function diceRow(values, hide = false) {
   return el("div", { class: "dice-row" }, values.map((v) =>
     el("div", { class: `die ${hide ? "hidden" : ""}` }, hide ? "?" : String(v)),
   ));
+}
+
+function onlineGame(ctx) {
+  const { session } = ctx;
+  const names = session.players;
+  const n = names.length;
+  let cups = names.map(() => START_DICE);
+  let allDice = names.map(() => []);
+  let myDice = [];
+  let turn = 0;
+  let bid = null;
+  let round = 0;
+  const status = connectionPill();
+  session.onStatus(status.set);
+  const screen = (body) => render(el("div", { class: "screen" }, [header(ctx, status.node), body]));
+
+  function aliveIndices() { return cups.map((count, i) => count > 0 ? i : -1).filter((i) => i >= 0); }
+  function nextAlive(from) {
+    let next = from;
+    do { next = (next + 1) % n; } while (cups[next] <= 0);
+    return next;
+  }
+  function publicState() {
+    return { round, cups: cups.slice(), turn, bid, totalDice: cups.reduce((sum, count) => sum + count, 0) };
+  }
+
+  function startMatch() {
+    cups = names.map(() => START_DICE);
+    turn = 0;
+    startRound();
+  }
+
+  function startRound() {
+    if (!session.isHost) return;
+    round++;
+    bid = null;
+    if (cups[turn] <= 0) turn = nextAlive(turn);
+    allDice = cups.map((count) => count > 0 ? roll(count) : []);
+    names.forEach((_, i) => session.sendTo(i, "dice_hand", { round, dice: allDice[i] }));
+    const state = publicState();
+    session.send("dice_state", state);
+    showState(state);
+  }
+
+  function showState(state) {
+    round = state.round; cups = state.cups; turn = state.turn; bid = state.bid;
+    const active = session.myIndex === turn;
+    if (!active) {
+      screen(el("div", { class: "screen" }, [
+        scoreboard(names, cups, { activeIndex: turn, colors: ctx.playerColors }),
+        el("div", { class: "card center" }, [
+          el("div", { class: "pill" }, "Your dice"), diceRow(myDice),
+          bid ? el("div", { class: "verdict match" }, `Current bid: ${bidLabel(bid)}`) : el("p", { class: "muted" }, "Opening bid"),
+          el("div", { class: "waiting compact-wait" }, `${names[turn]} is deciding.`),
+        ]),
+      ]));
+      return;
+    }
+    let qty = bid ? bid.qty : 1;
+    let face = bid ? bid.face : 2;
+    const draw = () => {
+      const candidate = { qty, face };
+      screen(el("div", { class: "screen" }, [
+        scoreboard(names, cups, { activeIndex: turn, colors: ctx.playerColors }),
+        el("div", { class: "card" }, [
+          el("div", { class: "pill" }, `${names[turn]} - your dice`),
+          diceRow(myDice),
+          bid ? el("p", { class: "center" }, ["Current bid: ", el("b", {}, bidLabel(bid))]) : null,
+          el("p", { class: "muted center" }, `${state.totalDice} dice remain on the table`),
+          el("div", { class: "center", style: "font-size:1.5rem;font-weight:800;margin:10px 0" }, bidLabel(candidate)),
+          el("div", { class: "counter" }, [
+            el("button", { class: "btn round-btn secondary", disabled: qty <= 1, onClick: () => { qty--; draw(); } }, "−"),
+            el("span", { class: "num" }, String(qty)),
+            el("button", { class: "btn round-btn secondary", disabled: qty >= state.totalDice, onClick: () => { qty++; draw(); } }, "+"),
+          ]),
+          el("div", { class: "dice-pick" }, [2, 3, 4, 5, 6].map((value) => el("button", {
+            class: `die pick ${face === value ? "on" : ""}`, onClick: () => { face = value; draw(); },
+          }, String(value)))),
+          el("div", { class: "stack", style: "margin-top:12px" }, [
+            button(`Bid ${bidLabel(candidate)}`, { big: true, disabled: !beats(candidate, bid), onClick: () => submitAction({ type: "bid", qty, face }) }),
+            bid ? button("Call liar", { variant: "accent", big: true, onClick: () => submitAction({ type: "liar" }) }) : null,
+          ]),
+        ]),
+      ]));
+    };
+    draw();
+  }
+
+  function submitAction(action) {
+    if (session.isHost) handleAction({ ...action, from: session.myIndex, round });
+    else session.send("dice_action", { ...action, round });
+  }
+
+  function handleAction(message) {
+    if (!session.isHost || message.round !== round || message.from !== turn) return;
+    if (message.type === "bid") {
+      const nextBid = { qty: Number(message.qty), face: Number(message.face), bidder: turn };
+      if (!beats(nextBid, bid) || nextBid.qty > cups.reduce((sum, count) => sum + count, 0) || !FACES.includes(nextBid.face)) return;
+      bid = nextBid;
+      turn = nextAlive(turn);
+      const state = publicState();
+      session.send("dice_state", state);
+      showState(state);
+      return;
+    }
+    if (message.type !== "liar" || !bid) return;
+    const actual = countFace(allDice.filter((_, i) => cups[i] > 0), bid.face);
+    const bidValid = actual >= bid.qty;
+    const loser = bidValid ? turn : bid.bidder;
+    cups[loser]--;
+    const payload = { round, cups: cups.slice(), dice: allDice, bid, actual, loser, bidValid, winner: aliveIndices().length === 1 ? aliveIndices()[0] : null };
+    session.send("dice_reveal", payload);
+    showReveal(payload);
+  }
+
+  function showReveal(payload) {
+    cups = payload.cups;
+    if (payload.winner != null) celebrate();
+    const rows = names.map((name, i) => el("div", { class: "card", style: "padding:12px" }, [
+      el("div", { class: "who", style: "font-weight:700;margin-bottom:6px" }, `${name}${i === payload.loser ? " - lost a die" : ""}`),
+      diceRow(payload.dice[i]),
+    ]));
+    screen(el("div", { class: "screen" }, [
+      el("div", { class: "card center" }, [
+        el("h2", {}, payload.winner != null ? `${names[payload.winner]} wins` : payload.bidValid ? "The bid was valid" : "The bluff was caught"),
+        el("p", {}, `There were ${payload.actual} matching dice. ${names[payload.loser]} loses one die.`),
+      ]),
+      el("div", { class: "stack" }, rows),
+      scoreboard(names, cups, { colors: ctx.playerColors }),
+      el("div", { class: "footer-actions" }, onlineReadyGate(session, `dice:${payload.round}`, () => {
+        if (!session.isHost) return;
+        if (payload.winner != null) startMatch();
+        else { turn = payload.loser; startRound(); }
+      }, { label: payload.winner != null ? "Ready for rematch" : "Ready for next roll" })),
+    ]));
+  }
+
+  session.on("dice_hand", (message) => { myDice = message.dice || []; });
+  session.on("dice_state", (message) => { if (!session.isHost) showState(message); });
+  session.on("dice_action", handleAction);
+  session.on("dice_reveal", (message) => { if (!session.isHost) showReveal(message); });
+
+  if (session.isHost) startMatch();
+  else screen(el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Waiting for the host to roll"]));
 }
 
 function localGame(ctx) {

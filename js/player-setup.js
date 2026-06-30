@@ -60,7 +60,7 @@ export function askName(g, prompt, next, { onBack } = {}) {
   render(el("div", { class: "screen name-screen" }, [
     topbar({ onBack }),
     el("div", { class: "game-stage compact" }, [
-      el("div", { class: "hero" }, [el("h1", {}, `${g.emoji} ${g.title}`), el("div", { class: "tag" }, prompt)]),
+      el("div", { class: "hero" }, [el("h1", {}, g.title), el("div", { class: "tag" }, prompt)]),
       el("div", { class: "card stack" }, [
         el("div", { class: "name-row" }, [colorControl, input]),
         el("p", { class: "muted color-hint" }, "Choose the color others will see."),
@@ -107,7 +107,7 @@ export function localSetup(g, { onBack, onStart, rulesModal, settings: initialSe
 
     render([
       topbar({ onBack, right: el("button", { class: "iconbtn", onClick: () => rulesModal(g) }, "?") }),
-      el("div", { class: "hero" }, [el("h1", {}, `${g.emoji} ${g.title}`), el("div", { class: "tag" }, g.localSetupTag || "One phone — pass it around.")]),
+      el("div", { class: "hero" }, [el("h1", {}, g.title), el("div", { class: "tag" }, g.localSetupTag || "One device - pass it around.")]),
       counter,
       el("div", { class: "card stack" }, [el("p", { class: "muted center" }, "Player names & colors"), ...inputs]),
       el("div", { class: "footer-actions" },
@@ -128,7 +128,7 @@ export function localSetup(g, { onBack, onStart, rulesModal, settings: initialSe
 /** Build default settings object from a game's lobbySettings schema. */
 export function defaultLobbySettings(game) {
   const settings = { maxPlayers: game.onlineMaxPlayers ?? game.maxPlayers };
-  (game.lobbySettings || []).forEach((def) => { settings[def.key] = def.default; });
+  (game.lobbySettings || []).forEach((def) => { settings[def.key] = Array.isArray(def.default) ? def.default.slice() : def.default; });
   return settings;
 }
 
@@ -163,6 +163,26 @@ export function renderLobbySettings(game, settings, { editable, onChange, showMa
                 onClick: () => onChange(def.key, opt),
               }, String(opt))))
           : el("span", { class: "setting-value" }, String(settings[def.key])),
+      ]));
+    }
+    if (def.type === "multiselect") {
+      const selected = Array.isArray(settings[def.key]) ? settings[def.key] : [];
+      rows.push(el("div", { class: `lobby-setting multiselect${editable ? "" : " readonly"}` }, [
+        el("span", { class: "lobby-setting-label" }, def.label),
+        editable
+          ? el("div", { class: "setting-choices" }, def.options.map((option) => {
+              const active = selected.includes(option);
+              return el("button", {
+                class: `setting-chip${active ? " active" : ""}`,
+                type: "button",
+                "aria-pressed": active ? "true" : "false",
+                onClick: () => {
+                  const next = active ? selected.filter((value) => value !== option) : [...selected, option];
+                  if (next.length >= (def.minSelected || 1)) onChange(def.key, next);
+                },
+              }, String(option));
+            }))
+          : el("span", { class: "setting-value" }, selected.join(", ")),
       ]));
     }
   });

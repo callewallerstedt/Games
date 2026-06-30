@@ -13,12 +13,12 @@ export function onlineSession(transport, opts) {
   const handlers = {};
   const statusHandlers = [];
 
-  transport.onData((msg) => {
+  const stopData = transport.onData((msg) => {
     if (!msg?.t) return;
     const enriched = { ...msg, from: resolveFrom(msg) ?? msg.from };
     if (handlers[msg.t]) handlers[msg.t].forEach((fn) => fn(enriched));
   });
-  transport.onStatus((s) => statusHandlers.forEach((fn) => fn(s)));
+  const stopStatus = transport.onStatus((s) => statusHandlers.forEach((fn) => fn(s)));
 
   const players = roster.map((p) => p.name);
   const playerColors = roster.map((p) => p.color);
@@ -47,8 +47,33 @@ export function onlineSession(transport, opts) {
       if (isHost) transport.broadcast(msg);
       else transport.send(msg);
     },
+    sendTo: (playerIndex, t, payload = {}) => {
+      const msg = { t, from: myIndex, ...payload };
+      if (!isHost) {
+        if (playerIndex === 0) transport.send(msg);
+        return;
+      }
+      if (playerIndex === 0) {
+        transport._lastPrivate ||= {};
+        transport._lastPrivate[playerIndex] = msg;
+        if (handlers[t]) handlers[t].forEach((fn) => fn(msg));
+        return;
+      }
+      const peerId = roster[playerIndex]?.peerId;
+      if (peerId) {
+        transport._lastPrivate ||= {};
+        transport._lastPrivate[playerIndex] = msg;
+        transport.send(msg, peerId);
+      }
+    },
     on: (t, fn) => { (handlers[t] ||= []).push(fn); },
     onStatus: (fn) => statusHandlers.push(fn),
+    destroy: () => {
+      stopData?.();
+      stopStatus?.();
+      Object.keys(handlers).forEach((key) => { handlers[key].length = 0; });
+      statusHandlers.length = 0;
+    },
     transport,
   };
 }
@@ -67,6 +92,7 @@ export function localSession(players, playerColors = [], settings = {}) {
     playerCount: players.length,
     send() {},
     sendPrivate() {},
+    sendTo() {},
     on() {},
     onStatus() {},
   };

@@ -87,6 +87,7 @@ function online(ctx) {
   let currentItem = null;
   let guesses = names.map(() => null);
   let submitted = 0;
+  let round = 0;
 
   const status = connectionPill();
   session.onStatus(status.set);
@@ -126,19 +127,21 @@ function online(ctx) {
   function showReveal(p) {
     if (p.errors.filter((e) => e === Math.min(...p.errors)).length === 1) celebrate();
     screen(revealScreen(names, p.item, p.guesses, p.errors, p.scores,
-      onlineReadyGate(session, `guess:${qi}`, () => { if (isHost) hostNewRound(); }, { label: "Ready for next" })));
+      onlineReadyGate(session, `guess:${round}`, () => { if (isHost) hostNewRound(); }, { label: "Ready for next" })));
     haptic(12);
   }
 
   function hostNewRound() {
     if (qi >= deck.length) { deck = shuffle(GUESS_PROMPTS); qi = 0; }
     currentItem = deck[qi++];
-    session.send("guess_round", { q: currentItem.q, unit: currentItem.unit });
+    round++;
+    session.send("guess_round", { q: currentItem.q, unit: currentItem.unit, round });
     showGuess();
   }
 
   session.on("guess_round", (m) => {
     if (isHost) return;
+    round = m.round;
     currentItem = { q: m.q, unit: m.unit };
     showGuess();
   });

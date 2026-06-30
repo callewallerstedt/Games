@@ -1,5 +1,5 @@
 // "Triangle Lines" — tap two nearby dots to draw a line; close a triangle, go again.
-import { el, render, button, gameHeader, scoreChip, haptic, PLAYER_COLORS, localReadyGate } from "../ui.js";
+import { el, render, button, gameHeader, scoreChip, haptic, PLAYER_COLORS, localReadyGate, onlineReadyGate, connectionPill } from "../ui.js";
 
 const SIZE = 4;
 const INSET = 8;
@@ -14,7 +14,7 @@ const game = {
   blurb: "Connect dots — close a triangle, score it, draw again!",
   minPlayers: 2,
   maxPlayers: 4,
-  modes: ["local"],
+  modes: ["local", "online"],
   pickColors: true,
   estMinutes: 12,
   rulesHTML: `
@@ -25,7 +25,7 @@ const game = {
       <li>Most triangles when lines run out wins.</li>
     </ol>
     <p class="muted">Tap the highlighted dot again to cancel your pick.</p>`,
-  mount(ctx) { local(ctx); },
+  mount(ctx) { play(ctx); },
 };
 
 function idx(r, c) { return r * SIZE + c; }
@@ -69,9 +69,11 @@ function findNewTriangles(edgeKeys, a, b, claimed) {
   return found;
 }
 
-function local(ctx) {
+function play(ctx) {
   const names = ctx.players;
   const n = names.length;
+  const online = ctx.mode === "online";
+  const session = ctx.session;
   const colors = Array.from({ length: n }, (_, i) => ctx.playerColors?.[i] || PLAYER_COLORS[i % PLAYER_COLORS.length]);
   let turn = 0;
   const scores = names.map(() => 0);
@@ -79,6 +81,8 @@ function local(ctx) {
   const claimed = new Map();
   let selected = null;
 
+  const status = online ? connectionPill() : null;
+  if (status) session.onStatus(status.set);
   const turnBanner = el("div", { class: "tri-turn", role: "status" });
   const hintEl = el("p", { class: "muted center tiny tri-hint" }, "Tap a dot to start");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -158,6 +162,7 @@ function local(ctx) {
 
     dots.forEach((btn, i) => {
       btn.className = "tri-dot";
+      btn.disabled = online && session.myIndex !== turn;
       if (selected === i) btn.classList.add("sel");
       else if (selected != null && neighbors(selected).includes(i) && !edges.has(edgeKey(selected, i))) {
         btn.classList.add("nbr");
@@ -176,6 +181,7 @@ function local(ctx) {
   }
 
   function onDot(i) {
+    if (online && session.myIndex !== turn) return;
     if (selected == null) {
       selected = i;
       haptic(8);
@@ -201,6 +207,19 @@ function local(ctx) {
       return;
     }
 
+    if (online && !session.isHost) {
+      selected = null;
+      session.send("tri_move", { a, b });
+      paint();
+      return;
+    }
+    applyMove(a, b, turn);
+  }
+
+  function applyMove(a, b, player) {
+    if (player !== turn || !neighbors(a).includes(b)) return;
+    const k = edgeKey(a, b);
+    if (edges.has(k)) return;
     edges.set(k, turn);
     const newTris = findNewTriangles([...edges.keys()], a, b, claimed);
     newTris.forEach((tk) => { claimed.set(tk, turn); scores[turn]++; });
@@ -208,8 +227,32 @@ function local(ctx) {
     selected = null;
     haptic(newTris.length ? [10, 20, 10] : 8);
 
-    if (edges.size >= maxEdges) return gameOver();
+    if (edges.size >= maxEdges) {
+      if (online && session.isHost) session.send("tri_over", statePayload());
+      return gameOver();
+    }
     if (newTris.length === 0) turn = (turn + 1) % n;
+    if (online && session.isHost) session.send("tri_state", statePayload());
+    paint();
+  }
+
+  function statePayload() {
+    return {
+      turn,
+      scores: scores.slice(),
+      edges: Array.from(edges.entries()),
+      claimed: Array.from(claimed.entries()),
+    };
+  }
+
+  function applyState(message) {
+    turn = message.turn;
+    scores.splice(0, scores.length, ...message.scores);
+    edges.clear();
+    (message.edges || []).forEach(([key, owner]) => edges.set(key, owner));
+    claimed.clear();
+    (message.claimed || []).forEach(([key, owner]) => claimed.set(key, owner));
+    selected = null;
     paint();
   }
 
@@ -217,34 +260,46 @@ function local(ctx) {
     const best = Math.max(...scores);
     const wins = scores.map((s, i) => (s === best ? i : -1)).filter((i) => i >= 0);
     render(el("div", { class: "screen" }, [
-      gameHeader(ctx, game),
+      gameHeader(ctx, game, status?.node),
       el("div", { class: "card center" }, [
         el("div", { class: "verdict match" }, "Board complete!"),
         el("p", {}, wins.length > 1 ? "It's a tie!" : `${names[wins[0]]} wins with ${best} triangles!`),
       ]),
       el("div", { class: "scorebar" }, names.map((nm, i) => scoreChip(scores[i], nm, { color: colors[i] }))),
-      el("div", { class: "footer-actions" }, localReadyGate(names, reset, { label: "ready" })),
+      el("div", { class: "footer-actions" }, online
+        ? onlineReadyGate(session, "tri:gameover", () => { if (session.isHost) reset(true); }, { label: "Ready for rematch" })
+        : localReadyGate(names, reset, { label: "Rematch" })),
     ]));
   }
 
-  function reset() {
+  function reset(broadcast = false) {
     edges.clear();
     claimed.clear();
     scores.fill(0);
     turn = 0;
     selected = null;
+    if (online && session.isHost && broadcast) session.send("tri_reset", statePayload());
     mountBoard();
   }
 
   function mountBoard() {
     paint();
     render(el("div", { class: "screen" }, [
-      gameHeader(ctx, game),
+      gameHeader(ctx, game, status?.node),
       turnBanner,
       el("div", { class: "card tri-card" }, [hintEl, wrap]),
       scorebar,
       el("div", { class: "footer-actions" }, button("Restart board", { variant: "ghost", onClick: reset })),
     ]));
+  }
+
+  if (online) {
+    session.on("tri_move", (message) => {
+      if (session.isHost && message.from === turn) applyMove(message.a, message.b, message.from);
+    });
+    session.on("tri_state", (message) => { if (!session.isHost) applyState(message); });
+    session.on("tri_over", (message) => { if (!session.isHost) { applyState(message); gameOver(); } });
+    session.on("tri_reset", (message) => { if (!session.isHost) { applyState(message); mountBoard(); } });
   }
 
   mountBoard();

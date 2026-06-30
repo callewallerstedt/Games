@@ -21,8 +21,9 @@ import flashduel from "./flashduel.js";
 import wordduel from "./wordduel.js";
 import wavelength from "./wavelength.js";
 import bombparty from "./bombparty.js";
+import categories from "./categories.js";
 
-export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, wavelength, bombparty, battleship, dice, tapple, guess, truefalse, triangles, crime, neoncode, flashduel, wordduel];
+export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, wavelength, bombparty, categories, battleship, dice, tapple, guess, truefalse, triangles, crime, neoncode, flashduel, wordduel];
 
 export function getGame(id) {
   return GAMES.find((g) => g.id === id) || null;

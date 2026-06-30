@@ -7,7 +7,13 @@
 function makeBus() {
   const handlers = { data: [], status: [], close: [], join: [], leave: [] };
   return {
-    on: (type, fn) => { handlers[type].push(fn); },
+    on: (type, fn) => {
+      handlers[type].push(fn);
+      return () => {
+        const index = handlers[type].indexOf(fn);
+        if (index >= 0) handlers[type].splice(index, 1);
+      };
+    },
     emit: (type, ...args) => { handlers[type].forEach((fn) => fn(...args)); },
   };
 }

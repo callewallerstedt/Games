@@ -1,5 +1,5 @@
 // "Word Duel" — pick a secret word, crack your opponent's with Wordle-style clues.
-import { el, render, button, connectionPill, passDevice, gameHeader, celebrate, haptic } from "../ui.js";
+import { el, render, button, connectionPill, passDevice, gameHeader, celebrate, haptic, onlineReadyGate } from "../ui.js";
 import { isValidWord, scoreGuess } from "../data/words.js";
 
 const game = {
@@ -111,6 +111,7 @@ function online(ctx) {
   const histories = [[], []];
   const guessCounts = [0, 0];
   let turn = 0;
+  let round = 0;
 
   const status = connectionPill();
   session.onStatus(status.set);
@@ -120,34 +121,45 @@ function online(ctx) {
   function tryStart() {
     if (!isHost || !secrets[0] || !secrets[1]) return;
     turn = 0;
+    secrets.forEach((word, index) => session.sendTo(index, "wd_restore_secret", { word, round }));
     session.send("wd_start", { turn });
     showTurn();
   }
 
-  function showResult(msg) {
+  function showResult(msg, revealedSecrets = secrets) {
     celebrate();
     screen(el("div", { class: "stack" }, [
       el("div", { class: "card center" }, [
         el("div", { class: "verdict match" }, msg),
-        el("p", { class: "muted" }, `${names[0]}: "${secrets[0]}" · ${names[1]}: "${secrets[1]}"`),
+        el("p", { class: "muted" }, `${names[0]}: "${revealedSecrets[0]}" · ${names[1]}: "${revealedSecrets[1]}"`),
       ]),
       el("div", { class: "card" }, [el("p", { class: "muted center" }, `${names[0]}'s board`), board(histories[0], wordLen)]),
       el("div", { class: "card" }, [el("p", { class: "muted center" }, `${names[1]}'s board`), board(histories[1], wordLen)]),
-      el("div", { class: "footer-actions" }, button("Exit", { big: true, onClick: ctx.exit })),
+      el("div", { class: "footer-actions" }, onlineReadyGate(session, `wd:${round}`, resetRound, { label: "Ready for rematch" })),
     ]));
+  }
+
+  function resetRound() {
+    if (!isHost) return;
+    round++;
+    secrets[0] = null; secrets[1] = null;
+    histories[0] = []; histories[1] = [];
+    guessCounts[0] = 0; guessCounts[1] = 0;
+    session.send("wd_reset", { round });
+    showSecretForm();
   }
 
   function afterGuess(player, word, feedback) {
     histories[player].push({ letters: word.split(""), feedback });
     guessCounts[player]++;
     if (word === secrets[opponent(player)]) {
-      session.send("wd_turn", { turn, histories, guessCounts, winner: player, msg: `${names[player]} cracked it! 🎯` });
-      showResult(`${names[player]} cracked it! 🎯`);
+      session.send("wd_turn", { turn, histories, guessCounts, winner: player, secrets, round, msg: `${names[player]} cracked it!` });
+      showResult(`${names[player]} cracked it!`, secrets);
       return;
     }
     if (guessCounts[0] >= maxGuesses && guessCounts[1] >= maxGuesses) {
-      session.send("wd_turn", { turn, histories, guessCounts, winner: -1, msg: "Draw! 🤝" });
-      showResult("Both ran out of guesses — draw! 🤝");
+      session.send("wd_turn", { turn, histories, guessCounts, winner: -1, secrets, round, msg: "Both ran out of guesses - draw" });
+      showResult("Both ran out of guesses - draw", secrets);
       return;
     }
     turn = opponent(player);
@@ -194,20 +206,33 @@ function online(ctx) {
     histories[1] = m.histories[1];
     guessCounts[0] = m.guessCounts[0];
     guessCounts[1] = m.guessCounts[1];
-    if (m.winner != null) showResult(m.msg || "Game over");
+    if (m.winner != null) { round = m.round; showResult(m.msg || "Game over", m.secrets); }
     else showTurn();
   });
+  session.on("wd_restore_secret", (m) => { secrets[myIndex] = m.word; round = m.round; });
+  session.on("wd_reset", (m) => {
+    if (isHost) return;
+    round = m.round;
+    secrets[0] = null; secrets[1] = null;
+    histories[0] = []; histories[1] = [];
+    guessCounts[0] = 0; guessCounts[1] = 0;
+    showSecretForm();
+  });
 
-  screen(secretInput(wordLen, `${names[myIndex]} — your secret word`, (word) => {
-    secrets[myIndex] = word;
-    if (isHost) {
-      if (secrets[1]) tryStart();
-      else screen(waiting(`Waiting for ${names[1]}'s secret word…`));
-    } else {
-      session.send("wd_secret", { word });
-      screen(waiting(`Waiting for ${names[opponent(myIndex)]}…`));
-    }
-  }));
+  function showSecretForm() {
+    screen(secretInput(wordLen, `${names[myIndex]} — your secret word`, (word) => {
+      secrets[myIndex] = word;
+      if (isHost) {
+        if (secrets[1]) tryStart();
+        else screen(waiting(`Waiting for ${names[1]}'s secret word…`));
+      } else {
+        session.send("wd_secret", { word });
+        screen(waiting(`Waiting for ${names[opponent(myIndex)]}…`));
+      }
+    }));
+  }
+
+  showSecretForm();
 }
 
 function local(ctx) {

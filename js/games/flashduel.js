@@ -1,6 +1,6 @@
 // "Flash Duel" — two players face each other across one phone and race the signal.
 
-import { el, render, button, gameHeader, segmented, scoreChip, celebrate, haptic } from "../ui.js";
+import { el, render, button, gameHeader, segmented, scoreChip, celebrate, haptic, connectionPill, onlineReadyGate, scoreboard, setGameCleanup } from "../ui.js";
 
 const game = {
   id: "flashduel",
@@ -10,7 +10,9 @@ const game = {
   blurb: "Face-to-face reflex combat — wait through the fake-outs, then strike first.",
   minPlayers: 2,
   maxPlayers: 2,
-  modes: ["local"],
+  modes: ["local", "online"],
+  onlineMaxPlayers: 2,
+  lobbySettings: [{ key: "targetScore", label: "First to", type: "choice", options: [3, 5, 7], default: 5 }],
   localLabel: "One phone (face to face)",
   localSetupTag: "One phone — place it between you.",
   estMinutes: 5,
@@ -22,9 +24,141 @@ const game = {
       <li>When it flashes green and says <b>TAP!</b>, hit your pad first.</li>
       <li>A false start immediately gives the point to your opponent.</li>
     </ol>
-    <p class="muted">The top player's controls are rotated so both players can read from opposite sides of the phone.</p>`,
-  mount(ctx) { local(ctx); },
+    <p class="muted">On one device, the pads face opposite directions. Online, each player gets a full-screen pad and local reaction timing keeps the comparison fair.</p>`,
+  mount(ctx) { if (ctx.mode === "online") online(ctx); else local(ctx); },
 };
+
+function online(ctx) {
+  const { session } = ctx;
+  const names = session.players;
+  const targetScore = Number(session.settings.targetScore) || 5;
+  let scores = [0, 0];
+  let round = 0;
+  let phase = "result";
+  let startedAt = 0;
+  let taps = [null, null];
+  let timer = null;
+  setGameCleanup(() => { phase = "disposed"; clearTimeout(timer); });
+  const status = connectionPill();
+  session.onStatus(status.set);
+  const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
+
+  function readyScreen(label = "Ready for the signal") {
+    phase = "result";
+    screen(el("div", { class: "screen" }, [
+      scoreboard(names, scores, { colors: ctx.playerColors }),
+      el("div", { class: "card center" }, [
+        el("div", { class: "kicker" }, `Round ${round + 1}`),
+        el("h2", {}, label),
+        el("p", { class: "muted" }, "Keep a finger near the button. Tapping before GO loses the round."),
+      ]),
+      el("div", { class: "footer-actions" }, onlineReadyGate(session, `duel:ready:${round}`, armRound, { label: "Ready" })),
+    ]));
+  }
+
+  function armRound() {
+    if (!session.isHost) return;
+    phase = "wait";
+    taps = [null, null];
+    session.send("duel_wait", { round });
+    showPad("WAIT", "Do not tap yet", "wait");
+    const delay = 1400 + Math.random() * 2600;
+    timer = setTimeout(() => {
+      if (phase !== "wait") return;
+      phase = "go";
+      session.send("duel_go", { round });
+      showGo();
+    }, delay);
+  }
+
+  function showPad(headline, detail, tone) {
+    screen(el("div", { class: "screen" }, [
+      scoreboard(names, scores, { colors: ctx.playerColors }),
+      el("button", {
+        class: `remote-duel-pad ${tone}`,
+        onpointerdown: (event) => { event.preventDefault(); tap(); },
+      }, [el("strong", {}, headline), el("span", {}, detail)]),
+    ]));
+  }
+
+  function showGo() {
+    phase = "go";
+    startedAt = performance.now();
+    haptic([18, 20, 18]);
+    showPad("GO", "Tap now", "go");
+    if (session.isHost) {
+      clearTimeout(timer);
+      timer = setTimeout(resolveTaps, 3200);
+    }
+  }
+
+  function tap() {
+    if (phase !== "wait" && phase !== "go") return;
+    const payload = { round, falseStart: phase !== "go", reaction: phase === "go" ? Math.round(performance.now() - startedAt) : null };
+    phase = "locked";
+    showPad("LOCKED", "Waiting for the other player", "result");
+    if (session.isHost) receiveTap({ ...payload, from: session.myIndex });
+    else session.send("duel_tap", payload);
+  }
+
+  function receiveTap(message) {
+    if (!session.isHost || message.round !== round || taps[message.from]) return;
+    taps[message.from] = { falseStart: message.falseStart, reaction: message.reaction };
+    if (message.falseStart || taps.every(Boolean)) resolveTaps();
+  }
+
+  function resolveTaps() {
+    if (!session.isHost || phase === "resolved") return;
+    phase = "resolved";
+    clearTimeout(timer);
+    let winner = null;
+    let detail = "Nobody tapped in time.";
+    const falseStarter = taps.findIndex((tapResult) => tapResult?.falseStart);
+    if (falseStarter >= 0) {
+      winner = 1 - falseStarter;
+      detail = `${names[falseStarter]} tapped early.`;
+    } else {
+      const valid = taps.map((tapResult, i) => tapResult ? { i, reaction: tapResult.reaction } : null).filter(Boolean).sort((a, b) => a.reaction - b.reaction);
+      if (valid.length) {
+        winner = valid[0].i;
+        detail = `${valid[0].reaction} ms local reaction time.`;
+      }
+    }
+    if (winner != null) scores[winner]++;
+    const payload = { round, scores: scores.slice(), winner, detail, matchWinner: winner != null && scores[winner] >= targetScore ? winner : null };
+    session.send("duel_result", payload);
+    showResult(payload);
+  }
+
+  function showResult(payload) {
+    scores = payload.scores;
+    phase = "result";
+    if (payload.matchWinner != null) celebrate();
+    screen(el("div", { class: "screen" }, [
+      el("div", { class: "card center" }, [
+        el("div", { class: `verdict ${payload.winner == null ? "nomatch" : "match"}` },
+          payload.matchWinner != null ? `${names[payload.matchWinner]} wins the duel` : payload.winner == null ? "No point" : `${names[payload.winner]} scores`),
+        el("p", { class: "muted" }, payload.detail),
+      ]),
+      scoreboard(names, scores, { colors: ctx.playerColors }),
+      el("div", { class: "footer-actions" }, onlineReadyGate(session, `duel:result:${payload.round}`, () => {
+        if (!session.isHost) return;
+        if (payload.matchWinner != null) { scores = [0, 0]; round = 0; }
+        else round++;
+        session.send("duel_ready_screen", { round, scores });
+        readyScreen(payload.matchWinner != null ? "Rematch" : "Next signal");
+      }, { label: payload.matchWinner != null ? "Ready for rematch" : "Ready for next" })),
+    ]));
+  }
+
+  session.on("duel_wait", (message) => { if (!session.isHost && message.round === round) { phase = "wait"; taps = [null, null]; showPad("WAIT", "Do not tap yet", "wait"); } });
+  session.on("duel_go", (message) => { if (!session.isHost && message.round === round) showGo(); });
+  session.on("duel_tap", receiveTap);
+  session.on("duel_result", (message) => { if (!session.isHost) showResult(message); });
+  session.on("duel_ready_screen", (message) => { if (!session.isHost) { round = message.round; scores = message.scores; readyScreen("Next signal"); } });
+
+  readyScreen();
+}
 
 function local(ctx) {
   const names = ctx.players;
@@ -47,6 +181,7 @@ function local(ctx) {
     destroyed = true;
     clearTimer();
   }
+  setGameCleanup(dispose);
 
   const safeCtx = { ...ctx, exit: () => { dispose(); ctx.exit(); } };
   const statusEl = el("span", { class: "pill" }, "Face to face");
