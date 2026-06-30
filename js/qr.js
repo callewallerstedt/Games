@@ -1,26 +1,14 @@
 // Thin wrapper around the vendored qrcodejs library (exposes window.QRCode).
 import { el } from "./ui.js";
 
-const MINI_QR_PATTERN = [
-  "11111101110",
-  "10000101010",
-  "10110101110",
-  "10110100000",
-  "11111101010",
-  "00000000000",
-  "11101110101",
-  "01010101010",
-  "11101010101",
-  "01000001010",
-  "11111111111",
-];
-
-export function fakeMiniQrIcon() {
-  const grid = el("span", { class: "mini-qr-icon", "aria-hidden": "true" });
-  MINI_QR_PATTERN.join("").split("").forEach((cell) => {
-    grid.append(el("i", { class: cell === "1" ? "on" : "" }));
+export function qrScanIcon() {
+  return el("span", {
+    class: "qr-scan-icon",
+    html: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M4 4h7v7H4V4zm2 2v3h3V6H6zM13 4h7v7h-7V4zm2 2v3h3V6h-3zM4 13h7v7H4v-7zm2 2v3h3v-3H6z"/>
+      <path d="M13 13h2v2h-2v-2zm0 3h2v2h-2v-2zm3-3h2v2h-2v-2zm0 3h2v2h-2v-2zm3-3h2v2h-2v-2zm0 3h2v2h-2v-2zm-3 3h2v2h-2v-2zm3 0h2v2h-2v-2z"/>
+    </svg>`,
   });
-  return grid;
 }
 
 export function qrFor(text, size = 200) {

@@ -2,7 +2,7 @@
 import { el, render, topbar, registerSW, iosInstallTip, applyTheme, themePicker, disposeActiveGame } from "./ui.js";
 import { GAMES, getGame } from "./games/registry.js";
 import { openScanner } from "./scan.js";
-import { fakeMiniQrIcon } from "./qr.js";
+import { qrScanIcon } from "./qr.js";
 import { hubProfileCard } from "./player-setup.js";
 import { cleanupLobby, gameLobby, hostFlow, joinFlow, startOnline, startLocal } from "./lobby.js";
 
@@ -62,7 +62,7 @@ function hub() {
     "aria-label": "Scan QR to join",
     title: "Scan to join",
     onClick: () => openScanner((gameId, peerId) => go(`#/join/${gameId}/${peerId}`)),
-  }, fakeMiniQrIcon());
+  }, qrScanIcon());
 
   const themeBtn = el("button", { class: "iconbtn theme-fab", "aria-label": "Appearance", title: "Appearance", onClick: () => themePicker(() => hub()) }, "◐");
 
