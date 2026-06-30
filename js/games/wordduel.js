@@ -1,6 +1,8 @@
 // "Word Duel" — pick a secret word, crack your opponent's with Wordle-style clues.
 import { el, render, button, connectionPill, passDevice, gameHeader, celebrate, haptic, onlineReadyGate } from "../ui.js";
-import { isValidWord, scoreGuess } from "../data/words.js";
+import { scoreGuess } from "../data/words.js";
+
+const acceptWord = (word, wordLen) => /^[a-z]+$/.test(word) && word.length === wordLen;
 
 const game = {
   id: "wordduel",
@@ -57,16 +59,16 @@ function secretInput(wordLen, label, onDone) {
   });
   const btn = button("Lock secret word 🔒", { big: true, disabled: true, onClick: () => {
     const w = input.value.trim().toLowerCase();
-    if (isValidWord(w, wordLen)) onDone(w);
+    if (acceptWord(w, wordLen)) onDone(w);
   } });
   input.addEventListener("input", () => {
-    btn.disabled = !isValidWord(input.value.trim().toLowerCase(), wordLen);
+    btn.disabled = !acceptWord(input.value.trim().toLowerCase(), wordLen);
   });
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) btn.click(); });
   setTimeout(() => input.focus(), 40);
   return el("div", { class: "card stack" }, [
     el("div", { class: "pill" }, label),
-    el("p", { class: "muted center" }, `Pick a real ${wordLen}-letter word.`),
+    el("p", { class: "muted center" }, `Pick any ${wordLen}-letter word.`),
     input,
     btn,
   ]);
@@ -85,10 +87,10 @@ function guessForm(wordLen, label, onDone) {
   });
   const btn = button("Submit guess", { big: true, disabled: true, onClick: () => {
     const w = input.value.trim().toLowerCase();
-    if (isValidWord(w, wordLen)) onDone(w);
+    if (acceptWord(w, wordLen)) onDone(w);
   } });
   input.addEventListener("input", () => {
-    btn.disabled = !isValidWord(input.value.trim().toLowerCase(), wordLen);
+    btn.disabled = !acceptWord(input.value.trim().toLowerCase(), wordLen);
   });
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) btn.click(); });
   setTimeout(() => input.focus(), 40);
