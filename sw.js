@@ -1,5 +1,5 @@
 // Offline shell — network-first for code so deploys show up immediately.
-const CACHE = "party-games-v13";
+const CACHE = "party-games-v14";
 
 const PRECACHE = [
   "./",

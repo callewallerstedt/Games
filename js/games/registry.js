@@ -23,8 +23,9 @@ import wavelength from "./wavelength.js";
 import bombparty from "./bombparty.js";
 import categories from "./categories.js";
 import newphone from "./newphone.js";
+import millionaire from "./millionaire.js";
 
-export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, wavelength, bombparty, categories, newphone, battleship, dice, tapple, guess, truefalse, triangles, crime, neoncode, flashduel, wordduel];
+export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, wavelength, bombparty, categories, newphone, millionaire, battleship, dice, tapple, guess, truefalse, triangles, crime, neoncode, flashduel, wordduel];
 
 export function getGame(id) {
   return GAMES.find((g) => g.id === id) || null;
