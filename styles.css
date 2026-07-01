@@ -1193,23 +1193,35 @@ p { margin: 0 0 .8em; }
   text-align: center; font-size: 1.25rem; font-weight: 700; line-height: 1.35; padding: 10px 6px;
   min-height: 3.2em; display: grid; place-items: center;
 }
-.jeo-answers { display: grid; grid-template-columns: 1fr; gap: 10px; }
-.jeo-answer {
-  display: flex; align-items: center; gap: 12px; text-align: left; padding: 14px 16px;
-  border-radius: var(--radius); border: 1.5px solid var(--line-strong); background: var(--surface);
-  color: var(--text); cursor: pointer; font-size: 1.02rem; transition: border-color .12s, transform .1s;
+/* ---- setup option (lose-points toggle) ---- */
+.jeo-option {
+  display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+  padding: 4px 0 2px;
 }
-.jeo-answer:hover:not(:disabled) { border-color: #2743e0; transform: translateY(-1px); }
-.jeo-answer:disabled { cursor: default; }
-.jeo-answer .jeo-letter {
-  width: 30px; height: 30px; flex: none; border-radius: 8px; display: grid; place-items: center;
-  background: #0a127a; color: #fff; font-weight: 800;
+.jeo-option-label { color: var(--text-soft); font-weight: 700; font-size: .9rem; }
+
+/* ---- text-entry answering ---- */
+.jeo-answer-form { display: flex; flex-direction: column; gap: 10px; }
+.jeo-input { text-align: center; font-size: 1.15rem; font-weight: 700; }
+.jeo-idk { align-self: center; font-size: .88rem; padding: 6px 10px; min-height: 0; width: auto; }
+
+/* ---- reveal / judging ---- */
+.jeo-reveal { display: flex; flex-direction: column; gap: 8px; }
+.jeo-reveal-row {
+  display: flex; flex-direction: column; gap: 2px; text-align: center;
+  padding: 10px 14px; border-radius: var(--radius); border: 1.5px solid var(--line-strong);
+  background: var(--surface);
 }
-.jeo-answer .jeo-opt { font-weight: 600; }
-.jeo-answer.correct { border-color: var(--good); background: color-mix(in srgb, var(--good) 16%, var(--surface)); }
-.jeo-answer.correct .jeo-letter { background: var(--good); }
-.jeo-answer.wrong { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 16%, var(--surface)); }
-.jeo-answer.wrong .jeo-letter { background: var(--bad); }
+.jeo-reveal-row.answer { border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, var(--surface)); }
+.jeo-reveal-tag { font-size: .72rem; text-transform: uppercase; letter-spacing: .5px; color: var(--text-soft); font-weight: 800; }
+.jeo-reveal-val { font-size: 1.1rem; font-weight: 700; word-break: break-word; }
+.jeo-reveal-val.strong { color: var(--good); font-weight: 900; }
+
+.jeo-judge-actions { display: flex; flex-direction: column; gap: 8px; }
+.jeo-judge-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.jeo-judge-btns .btn { font-size: 1.05rem; font-weight: 800; }
+.jeo-judge-yes { background: var(--good); }
+.jeo-judge-no { background: var(--bad); }
 
 .jeo-reveal-foot { display: flex; flex-direction: column; gap: 8px; }
 .jeo-verdict { text-align: center; font-weight: 900; font-size: 1.2rem; }
