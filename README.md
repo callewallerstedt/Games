@@ -30,6 +30,7 @@ the game data then flows directly between the two phones.
 | ⚡ **Flash Duel** | Face each other across one phone, survive the fake signals, and race to tap first when the screen flashes. |
 | 📱 **New Phone Who Dis?** | Reply to a mystery text with the funniest of your 5 absurd cards. Replies reveal anonymously, everyone votes, the best one scores. Edit the cards in `js/data/newphone.js`. |
 | 💰 **Millionaire** | Climb the 15-question money ladder to $1,000,000 with 50:50, Ask the Audience and Phone a Friend lifelines. Play all together as one team or split into rival teams. Questions live in `js/data/millionaire.js`. |
+| 🧠 **Jeopardy** | Pick a theme, then take turns choosing clues off a 5×5 board (100→500 points). Right answers keep the points and the turn; wrong answers lose the points and pass it on. Most points when the board clears wins. Themes and questions live in `js/data/jeopardy.js`. |
 
 Installable as a home-screen app (PWA): on iPhone, open in Safari → Share → **Add to Home
 Screen** for a full-screen, offline-capable experience.
