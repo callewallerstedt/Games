@@ -1,6 +1,10 @@
 // "Closest Guess" — estimate wild numbers; nearest answer wins the round.
-import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic, connectionPill, onlineReadyGate, localReadyGate } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic, connectionPill, onlineReadyGate, localReadyGate, setGameCleanup } from "../ui.js";
 import { GUESS_PROMPTS } from "../data/guess-prompts.js";
+
+// Safety net: if a player's connection drops a message, don't let the round
+// hang forever — force it through this long after guessing opens.
+const STALL_TIMEOUT_MS = 45000;
 
 const game = {
   id: "guess",
@@ -39,7 +43,7 @@ function revealScreen(names, item, guesses, errors, scores, nextControl) {
     const isWin = off === best;
     return el("div", { class: `answer-card reveal-anim ${isWin ? "me" : ""}` }, [
       el("span", { class: "who" }, n + (isWin ? " 🎯" : "")),
-      el("span", { class: "val" }, [
+      el("span", { class: "val" }, guesses[i] === null ? [el("div", { class: "tiny muted" }, "No guess")] : [
         el("div", {}, fmt(guesses[i]) + " " + item.unit),
         el("div", { class: "tiny muted", style: "font-weight:600;margin-top:2px" }, `off by ${fmt(off)}`),
       ]),
@@ -88,10 +92,13 @@ function online(ctx) {
   let guesses = names.map(() => null);
   let submitted = 0;
   let round = 0;
+  let disposed = false;
+  let stallTimeout = null;
+  setGameCleanup(() => { disposed = true; clearTimeout(stallTimeout); });
 
   const status = connectionPill();
   session.onStatus(status.set);
-  const screen = (b) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), b]));
+  const screen = (b) => { if (!disposed) render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), b])); };
 
   function showGuess() {
     submitted = 0;
@@ -108,14 +115,17 @@ function online(ctx) {
     }));
   }
 
-  function checkReveal() {
-    if (!isHost) return;
+  function checkReveal(force = false) {
+    if (!isHost || disposed) return;
     const done = guesses.every((g) => g !== null);
-    if (!done) {
+    if (!done && !force) {
       screen(waitingView(`Waiting for players… (${guesses.filter((g) => g !== null).length}/${count})`));
       return;
     }
-    const errors = guesses.map((g) => Math.abs(g - currentItem.answer));
+    clearTimeout(stallTimeout);
+    // A player whose connection dropped never guessed — give them an error
+    // that can never win, rather than hanging the round forever.
+    const errors = guesses.map((g) => g === null ? Infinity : Math.abs(g - currentItem.answer));
     const best = Math.min(...errors);
     const winners = errors.map((e, i) => e === best ? i : -1).filter((i) => i >= 0);
     winners.forEach((i) => { scores[i]++; });
@@ -137,6 +147,8 @@ function online(ctx) {
     round++;
     session.send("guess_round", { q: currentItem.q, unit: currentItem.unit, round });
     showGuess();
+    clearTimeout(stallTimeout);
+    stallTimeout = setTimeout(() => checkReveal(true), STALL_TIMEOUT_MS);
   }
 
   session.on("guess_round", (m) => {

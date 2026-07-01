@@ -718,7 +718,7 @@ p { margin: 0 0 .8em; }
 .wave-pin {
   position: absolute; top: 50%; transform: translate(-50%,-50%); width: 34px; height: 34px; border-radius: 50%;
   display: grid; place-items: center; font-size: .72rem; font-weight: 900; color: #fff; border: 3px solid #fff;
-  box-shadow: 0 4px 12px rgba(0,0,0,.22); transition: left .12s ease-out;
+  box-shadow: 0 4px 12px rgba(0,0,0,.22); transition: left .15s ease-out, top .15s ease-out;
 }
 .wave-pin.target { background: #111827; }
 .wave-pin.guess { background: #16a34a; }

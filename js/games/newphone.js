@@ -9,6 +9,9 @@ import {
 import { START_CARDS, REPLY_CARDS } from "../data/newphone.js";
 
 const HAND_SIZE = 5;
+// Safety net: if a player's connection drops a message, don't let the round
+// hang forever — force it through this long after the phase opens.
+const STALL_TIMEOUT_MS = 45000;
 
 const game = {
   id: "newphone",
@@ -189,7 +192,8 @@ function online(ctx) {
   let myHand = [];
   let myCard = null;
   let disposed = false;
-  setGameCleanup(() => { disposed = true; });
+  let stallTimeout = null;
+  setGameCleanup(() => { disposed = true; clearTimeout(stallTimeout); });
 
   const status = connectionPill();
   session.onStatus(status.set);
@@ -212,6 +216,8 @@ function online(ctx) {
       while (hands[i].length < HAND_SIZE) hands[i].push(draw());
       session.sendTo(i, "np_deal", { round, prompt, hand: hands[i].slice() });
     });
+    clearTimeout(stallTimeout);
+    stallTimeout = setTimeout(() => revealPhase(true), STALL_TIMEOUT_MS);
   }
 
   function showHand() {
@@ -231,11 +237,17 @@ function online(ctx) {
     if (pending.every((c) => c != null)) revealPhase();
   }
 
-  function revealPhase() {
-    if (!session.isHost) return;
+  function revealPhase(force = false) {
+    if (!session.isHost || disposed) return;
+    if (!force && !pending.every((c) => c != null)) return;
+    clearTimeout(stallTimeout);
+    // A player whose connection dropped never sent a card — auto-play one
+    // from their hand rather than hanging the round forever.
+    pending = pending.map((card, i) => card != null ? card : (hands[i].shift() ?? draw()));
     plays = shuffle(names.map((_, i) => ({ player: i, card: pending[i] })));
     session.send("np_reveal", { round, prompt, plays });
     showReveal({ round, prompt, plays });
+    stallTimeout = setTimeout(() => finishRound(true), STALL_TIMEOUT_MS);
   }
 
   function showReveal(payload) {
@@ -253,8 +265,11 @@ function online(ctx) {
     if (votes.every((v) => v != null)) finishRound();
   }
 
-  function finishRound() {
-    if (!session.isHost) return;
+  function finishRound(force = false) {
+    if (!session.isHost || disposed) return;
+    if (!force && !votes.every((v) => v != null)) return;
+    clearTimeout(stallTimeout);
+    // Missing votes (dropped connection) are simply excluded from the tally below.
     const { entries, winners, gameOver } = tally(plays, votes.filter(Boolean), scores, winScore);
     const payload = { round, prompt, entries, winners, scores: scores.slice(), names, gameOver };
     session.send("np_result", payload);

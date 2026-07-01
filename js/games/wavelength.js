@@ -1,8 +1,12 @@
 // Wavelength: one player gives a spoken clue, everyone else guesses on a fine scale.
 import {
   el, render, button, pill, connectionPill, passDevice, gameHeader, celebrate,
-  onlineReadyGate, localReadyGate, scoreboard,
+  onlineReadyGate, localReadyGate, scoreboard, setGameCleanup,
 } from "../ui.js";
+
+// Safety net: if a guesser's connection drops a message, don't let the round
+// hang forever — force it through this long after the guess phase opens.
+const STALL_TIMEOUT_MS = 45000;
 
 const SPECTRUMS = [
   ["cheap", "expensive"], ["normal", "insane"], ["boring", "thrilling"],
@@ -40,19 +44,48 @@ const game = {
   mount(ctx) { if (ctx.mode === "online") online(ctx); else local(ctx); },
 };
 
-function scaleView(spectrum, { target = null, guesses = [] } = {}) {
-  return el("div", { class: "wave-card" }, [
-    el("div", { class: "wave-labels" }, [el("b", {}, spectrum[0]), el("b", {}, spectrum[1])]),
-    el("div", { class: "wave-track" }, [
-      target == null ? null : el("i", { class: "wave-pin target", style: `left:${clamp(target)}%`, title: "Target" }, "T"),
-      ...guesses.filter((guess) => guess?.value != null).map((guess, i) =>
-        el("i", {
+function createScaleView(spectrum, { target = null, guesses = [] } = {}) {
+  const track = el("div", { class: "wave-track" });
+  if (target != null) {
+    track.append(el("i", { class: "wave-pin target", style: `left:${clamp(target)}%`, title: "Target" }, "T"));
+  }
+  const guessPins = new Map();
+  const syncGuesses = (nextGuesses) => {
+    const pins = nextGuesses.filter((guess) => guess?.value != null);
+    const names = new Set(pins.map((guess) => guess.name));
+    for (const [name, pin] of guessPins) {
+      if (!names.has(name)) { pin.remove(); guessPins.delete(name); }
+    }
+    pins.forEach((guess, i) => {
+      const left = `${clamp(guess.value)}%`;
+      const label = String(guess.name || "?").slice(0, 1).toUpperCase();
+      const title = `${guess.name}: ${guess.value}`;
+      const pin = guessPins.get(guess.name);
+      if (pin) {
+        pin.style.left = left;
+        pin.title = title;
+        pin.style.setProperty("--pin-row", i % 3);
+      } else {
+        const next = el("i", {
           class: "wave-pin guess",
-          style: `left:${clamp(guess.value)}%;--pin-row:${i % 3}`,
-          title: `${guess.name}: ${guess.value}`,
-        }, String(guess.name || "?").slice(0, 1).toUpperCase())),
-    ]),
+          style: `left:${left};--pin-row:${i % 3}`,
+          title,
+        }, label);
+        track.append(next);
+        guessPins.set(guess.name, next);
+      }
+    });
+  };
+  syncGuesses(guesses);
+  const node = el("div", { class: "wave-card" }, [
+    el("div", { class: "wave-labels" }, [el("b", {}, spectrum[0]), el("b", {}, spectrum[1])]),
+    track,
   ]);
+  return { node, updateGuesses: syncGuesses };
+}
+
+function scaleView(spectrum, opts = {}) {
+  return createScaleView(spectrum, opts).node;
 }
 
 function targetScreen(spectrum, target, cluerName, onDone) {
@@ -66,28 +99,31 @@ function targetScreen(spectrum, target, cluerName, onDone) {
 
 function guessScreen(spectrum, guesserName, onGuess, onSlide) {
   let value = 50;
-  let lastSent = 0;
+  let pendingSlide = null;
   const readout = el("div", { class: "wave-readout" }, "50");
-  let preview = scaleView(spectrum, { guesses: [{ name: guesserName, value }] });
+  const preview = createScaleView(spectrum, { guesses: [{ name: guesserName, value }] });
+  const flushSlide = () => {
+    if (pendingSlide == null || !onSlide) return;
+    onSlide(pendingSlide);
+    pendingSlide = null;
+  };
   const input = el("input", {
     class: "wave-slider", type: "range", min: "0", max: "100", step: "1", value: "50",
     "aria-label": `Guess for ${spectrum[0]} to ${spectrum[1]}`,
     oninput: (event) => {
       value = clamp(event.target.value);
       readout.textContent = String(value);
-      const next = scaleView(spectrum, { guesses: [{ name: guesserName, value }] });
-      preview.replaceWith(next);
-      preview = next;
-      const now = Date.now();
-      if (onSlide && now - lastSent > 70) { lastSent = now; onSlide(value); } // live feed to the clue-giver
+      preview.updateGuesses([{ name: guesserName, value }]);
+      pendingSlide = value;
+      requestAnimationFrame(flushSlide);
     },
   });
   return el("div", { class: "card stack" }, [
-    preview,
+    preview.node,
     el("div", { class: "wave-guess-label" }, `${guesserName}'s guess`),
     readout,
     input,
-    button("Lock guess", { big: true, onClick: () => { onSlide && onSlide(value); onGuess(value); } }),
+    button("Lock guess", { big: true, onClick: () => { flushSlide(); onSlide && onSlide(value); onGuess(value); } }),
   ]);
 }
 
@@ -136,10 +172,13 @@ function online(ctx) {
   let target = 50;
   let guesses = names.map(() => null);
   let live = names.map(() => null);     // in-progress slider values (cleared each round)
-  let cluerScaleNode = null;            // live scale node on the clue-giver's screen
+  let cluerScale = null;                // live scale on the clue-giver's screen
+  let stallTimeout = null;
+  let disposed = false;
+  setGameCleanup(() => { disposed = true; clearTimeout(stallTimeout); });
   const status = connectionPill();
   session.onStatus(status.set);
-  const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
+  const screen = (body) => { if (!disposed) render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body])); };
 
   // Pins for the clue-giver's live watch: each guesser's locked guess, or their
   // current slider while they're still moving it.
@@ -148,20 +187,16 @@ function online(ctx) {
     .filter((pin) => pin && pin.value != null);
 
   function cluerWatchScreen(pins) {
-    cluerScaleNode = scaleView(spectrum, { target, guesses: pins });
-    screen(el("div", { class: "screen" }, [
-      el("div", { class: "card stack" }, [
-        el("div", { class: "pill" }, "You gave the clue 🤫"),
-        cluerScaleNode,
-        el("p", { class: "muted center" }, "Watch the room slide in — they can't see the target."),
-      ]),
+    cluerScale = createScaleView(spectrum, { target, guesses: pins });
+    screen(el("div", { class: "card stack" }, [
+      el("div", { class: "pill" }, "You gave the clue 🤫"),
+      cluerScale.node,
+      el("p", { class: "muted center" }, "Watch the room slide in — they can't see the target."),
     ]));
   }
   function cluerUpdate(pins) {
-    if (!cluerScaleNode) return;
-    const next = scaleView(spectrum, { target, guesses: pins });
-    cluerScaleNode.replaceWith(next);
-    cluerScaleNode = next;
+    if (!cluerScale) { cluerWatchScreen(pins); return; }
+    cluerScale.updateGuesses(pins);
   }
   // Host: relay live positions to whoever is the clue-giver.
   function pushCluerLive() {
@@ -175,13 +210,20 @@ function online(ctx) {
     else session.send("wave_slider", { round, value });
   }
 
+  function enterGuessPhase() {
+    if (session.myIndex === cluer) cluerWatchScreen(cluerPins());
+    else showGuess();
+  }
+
   function showRole() {
-    cluerScaleNode = null;
+    cluerScale = null;
     if (session.myIndex === cluer) {
       screen(targetScreen(spectrum, target, names[cluer], () => {
         if (session.isHost) beginGuessing();
-        else session.send("wave_clued", { round });
-        screen(waiting("Clue sent. Waiting for everyone to guess."));
+        else {
+          session.send("wave_clued", { round });
+          enterGuessPhase();
+        }
       }));
     } else {
       screen(waitOnClueScreen(spectrum, names[cluer]));
@@ -206,9 +248,10 @@ function online(ctx) {
   function beginGuessing() {
     if (!session.isHost) return;
     live = names.map(() => null);
-    session.send("wave_guess_phase", { round, cluer, spectrum });
-    if (session.myIndex === cluer) cluerWatchScreen(cluerPins());
-    else showGuess();
+    clearTimeout(stallTimeout);
+    stallTimeout = setTimeout(() => checkReveal(true), STALL_TIMEOUT_MS);
+    session.send("wave_guess_phase", { round, cluer, spectrum, target });
+    enterGuessPhase();
   }
 
   function showGuess() {
@@ -220,10 +263,14 @@ function online(ctx) {
     }, submitSlide));
   }
 
-  function checkReveal() {
-    if (!session.isHost) return;
+  function checkReveal(force = false) {
+    if (!session.isHost || disposed) return;
     const complete = guesses.every((guess, i) => i === cluer || guess != null);
-    if (!complete) return;
+    if (!complete && !force) return;
+    clearTimeout(stallTimeout);
+    // A guesser whose connection dropped never locked in — treat them as a
+    // neutral (dead-center) guess rather than hanging the round forever.
+    if (!complete) guesses = guesses.map((guess, i) => (i === cluer || guess != null) ? guess : 50);
     const roundPoints = names.map((_, i) => i === cluer ? 0 : pointsFor(target, guesses[i]));
     const guesserPoints = roundPoints.filter((_, i) => i !== cluer);
     roundPoints[cluer] = Math.round(guesserPoints.reduce((sum, value) => sum + value, 0) / guesserPoints.length);
@@ -250,11 +297,18 @@ function online(ctx) {
   session.on("wave_target", (message) => {
     round = message.round; cluer = message.cluer; spectrum = message.spectrum; target = message.target; showRole();
   });
-  session.on("wave_clued", (message) => { if (session.isHost && message.round === round && message.from === cluer) beginGuessing(); });
+  session.on("wave_clued", (message) => {
+    if (!session.isHost || message.round !== round) return;
+    beginGuessing();
+  });
   session.on("wave_guess_phase", (message) => {
     if (session.isHost) return;
-    round = message.round; cluer = message.cluer; spectrum = message.spectrum;
-    if (session.myIndex === cluer) cluerWatchScreen([]); else showGuess();
+    round = message.round;
+    cluer = message.cluer;
+    spectrum = message.spectrum;
+    if (message.target != null) target = message.target;
+    live = names.map(() => null);
+    enterGuessPhase();
   });
   session.on("wave_slider", (message) => {
     if (!session.isHost || message.round !== round || message.from === cluer) return;
@@ -284,6 +338,29 @@ function local(ctx) {
   const status = pill("One device");
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status), body]));
 
+  function roomGuessScreen(spectrum, guesserName, existingPins, onGuess) {
+    let value = 50;
+    const readout = el("div", { class: "wave-readout" }, "50");
+    const preview = createScaleView(spectrum, { guesses: [...existingPins, { name: guesserName, value }] });
+    const input = el("input", {
+      class: "wave-slider", type: "range", min: "0", max: "100", step: "1", value: "50",
+      "aria-label": `Guess for ${spectrum[0]} to ${spectrum[1]}`,
+      oninput: (event) => {
+        value = clamp(event.target.value);
+        readout.textContent = String(value);
+        preview.updateGuesses([...existingPins, { name: guesserName, value }]);
+      },
+    });
+    return el("div", { class: "card stack" }, [
+      el("div", { class: "pill" }, `${guesserName} — place the clue on the spectrum`),
+      preview.node,
+      el("div", { class: "wave-guess-label" }, `${guesserName}'s guess`),
+      readout,
+      input,
+      button("Lock guess", { big: true, onClick: () => onGuess(value) }),
+    ]);
+  }
+
   async function playRound() {
     const spectrum = SPECTRUMS[rand(SPECTRUMS.length)];
     const target = rand(101);
@@ -291,10 +368,13 @@ function local(ctx) {
     const guesses = names.map(() => null);
     await passDevice(names[cluer], "You are the clue-giver");
     await new Promise((resolve) => screen(targetScreen(spectrum, target, names[cluer], resolve)));
+    const lockedPins = () => names
+      .map((name, i) => (i === cluer || guesses[i] == null ? null : { name, value: guesses[i] }))
+      .filter(Boolean);
     for (let i = 0; i < names.length; i++) {
       if (i === cluer) continue;
-      await passDevice(names[i], "Move the slider to place the spoken clue");
-      guesses[i] = await new Promise((resolve) => screen(guessScreen(spectrum, names[i], resolve)));
+      await passDevice(names[i], "Move the slider — everyone can watch it slide in");
+      guesses[i] = await new Promise((resolve) => screen(roomGuessScreen(spectrum, names[i], lockedPins(), resolve)));
     }
     const roundPoints = names.map((_, i) => i === cluer ? 0 : pointsFor(target, guesses[i]));
     const guesserPoints = roundPoints.filter((_, i) => i !== cluer);
