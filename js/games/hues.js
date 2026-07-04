@@ -175,7 +175,9 @@ function onlineGame(ctx) {
     const hint = el("p", { class: "center muted", style: "margin:8px 0 0" }, "Tap a colour to start exploring.");
     const lockBtn = button("Lock in guess 🎯", { big: true, disabled: true, onClick: () => {
       if (!pick) return;
-      guesses[session.myIndex] = pick;
+      // Don't pre-set guesses[myIndex] here: recordGuess() (host path) ignores a
+      // slot that's already filled, which would drop the host's own guess and
+      // hang the round one short. Let recordGuess record it authoritatively.
       showGuesserWait(pick);
       if (isHost) recordGuess(session.myIndex, pick);
       else session.send("hues_guess", { round, cell: pick });
