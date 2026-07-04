@@ -306,6 +306,8 @@ export function onlineReadyGate(session, gateId, onAllReady, opts = {}) {
   function finish() {
     if (done) return;
     done = true;
+    offs.forEach((off) => { try { off?.(); } catch {} });
+    offs.length = 0;
     onAllReady();
   }
   function updateStatus() {
@@ -319,23 +321,24 @@ export function onlineReadyGate(session, gateId, onAllReady, opts = {}) {
     session.sendPrivate("ready_gate_go", { id: gateId });
     finish();
   }
-  session.on("ready_gate", (m) => {
+  const offs = [];
+  offs.push(session.on("ready_gate", (m) => {
     if (!session.isHost || !m || m.id !== gateId || done) return;
     ready.add(m.from);
     updateStatus();
     publishState();
     maybeGo();
-  });
-  session.on("ready_gate_state", (m) => {
+  }));
+  offs.push(session.on("ready_gate_state", (m) => {
     if (!m || m.id !== gateId || done) return;
     ready.clear();
     (m.ready || []).forEach((i) => ready.add(i));
     updateStatus();
-  });
-  session.on("ready_gate_go", (m) => {
+  }));
+  offs.push(session.on("ready_gate_go", (m) => {
     if (!m || m.id !== gateId) return;
     finish();
-  });
+  }));
   return el("div", { class: "ready-gate" }, [status, btn]);
 }
 

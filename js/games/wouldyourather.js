@@ -73,8 +73,10 @@ function online(ctx) {
     const pick = (which) => {
       if (picked) return; picked = true;
       picks[session.myIndex] = which;
-      if (session.isHost) hostTryReveal(); else session.send("wyr_choice", { choice: which, round });
+      // Waiting screen first: hostTryReveal() may render the reveal synchronously
+      // when the host picks last, and that must not be overwritten.
       showWaiting(p, which);
+      if (session.isHost) hostTryReveal(); else session.send("wyr_choice", { choice: which, round });
     };
     screen(el("div", { class: "screen" }, [
       el("div", { class: "kicker" }, "Would you rather…"),

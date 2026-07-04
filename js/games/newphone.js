@@ -224,9 +224,11 @@ function online(ctx) {
     screen(handPicker(prompt, myHand, names[session.myIndex], (card) => {
       myCard = card;
       myHand = myHand.filter((c) => c !== card);
+      // Waiting screen first: recordPlay() may render the reveal synchronously
+      // when the host plays last, and that must not be overwritten.
+      wait("Reply sent. Waiting for everyone to answer…");
       if (session.isHost) recordPlay(session.myIndex, card);
       else session.send("np_play", { round, card });
-      wait("Reply sent. Waiting for everyone to answer…");
     }));
   }
 

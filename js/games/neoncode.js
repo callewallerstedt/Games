@@ -280,8 +280,10 @@ function online(ctx) {
       secrets[myIdx] = code;
       readySecrets[myIdx] = true;
       session.send("nc_secret_ready", { round, player: myIdx });
-      if (isHost) maybeStartBreaking();
+      // Waiting screen first: maybeStartBreaking() may render the guessing turn
+      // synchronously when the host locks in last, and that must not be overwritten.
       screen(waitingCard("maker", `${names[1 - myIdx]} is locking their code`, []));
+      if (isHost) maybeStartBreaking();
     });
   }
 

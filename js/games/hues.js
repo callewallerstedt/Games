@@ -20,21 +20,22 @@ const game = {
   title: "Color Clue",
   emoji: "🎨",
   color: "linear-gradient(135deg,#ff6b9d,#ffa84b 55%,#4bd1ff)",
-  blurb: "Clue a secret colour in 1–2 words — can they find it?",
+  blurb: "Clue a secret colour in 1–2 words — can the room find it?",
   minPlayers: 2,
-  maxPlayers: 2,
+  maxPlayers: 8,
   modes: ["local", "online"],
   estMinutes: 10,
   rulesHTML: `
-    <p>One of you is the <b>Clue-giver</b>, the other is the <b>Guesser</b>. Then you swap.</p>
+    <p>Each round one player is the <b>Clue-giver</b>; everyone else guesses. The role
+    rotates each round.</p>
     <ol>
       <li>The Clue-giver secretly sees a colour 🎯.</li>
       <li>They give a <b>one or two word</b> clue (e.g. "ocean", "ripe banana").</li>
-      <li>The Guesser taps the colour they think it is on the spectrum.</li>
-      <li>The closer the guess, the more points — a bullseye is <b>5</b>! 🎯</li>
+      <li>Every other player taps the colour they think it is on the spectrum.</li>
+      <li>The closer each guess, the more points — a bullseye is <b>5</b>! 🎯</li>
     </ol>
-    <p>It's <b>co-op</b>: you're building one team score together. Swap roles each round
-    and see how high you can climb.</p>
+    <p>It's <b>co-op</b>: every guess adds to one shared team score. Rotate the clue-giver
+    each round and see how high the whole room can climb.</p>
     <p class="muted">No naming the colour itself — that's cheating! 😄</p>`,
   mount(ctx) {
     if (ctx.mode === "online") onlineGame(ctx);
@@ -55,6 +56,8 @@ function grid(opts = {}) {
       if (opts.pick && opts.pick.r === r && opts.pick.c === c) classes.push("pick");
       if (opts.target && opts.target.r === r && opts.target.c === c) classes.push("target");
       if (opts.guess && opts.guess.r === r && opts.guess.c === c) classes.push("guess");
+      // Multiple guessers (online, 3+ players): mark every locked-in guess cell.
+      if (opts.guesses && opts.guesses.some((g) => g && g.r === r && g.c === c)) classes.push("guess");
       if (opts.preview && opts.preview.r === r && opts.preview.c === c) classes.push("preview");
       const cell = el("button", {
         class: classes.join(" "),
@@ -107,39 +110,50 @@ function waitingView({ msg, clue, pick, preview, disabled = true }) {
   return el("div", { class: "card" }, parts);
 }
 
-/* ---------------- ONLINE ---------------- */
+/* ---------------- ONLINE (2–8 players, host-authoritative) ---------------- */
 function onlineGame(ctx) {
   const { session } = ctx;
   const isHost = session.isHost;
+  const names = session.players;
+  const N = names.length;
   let round = 0;
   let team = { total: 0, best: 0 };
-  let target = null; // host knows always; guest knows only when cluing
+  let target = null;                 // host + current clue-giver know it
   let clue = "";
-  let partnerPreview = null;
-  let waitingOpts = null;
+  let guesses = names.map(() => null); // host-authoritative locked guesses
+  let progress = { count: 0, total: Math.max(1, N - 1) };
+  let phase = null;                    // 'cluer-wait' | 'guesser-wait' — for live progress redraws
 
   const status = connectionPill();
   session.onStatus(status.set);
   const screen = (body) => render(el("div", { class: "screen" }, [header(ctx, status.node), body]));
 
-  const showWaiting = (opts) => {
-    waitingOpts = opts;
-    screen(waitingView({ ...opts, preview: partnerPreview }));
-  };
-  // The clue-giver watches the guesser explore: move the preview marker on the
-  // existing grid instead of rebuilding the whole screen on every nudge.
-  const liveGrid = () => document.querySelector(".screen .hue-wrap");
-  const refreshWaiting = () => { markGrid(liveGrid(), "preview", partnerPreview); };
-  const resetRoundState = () => {
-    partnerPreview = null;
-    waitingOpts = null;
-  };
+  const cluerIndex = () => round % N;
+  const iAmCluer = () => session.myIndex === cluerIndex();
+  const guesserIndices = () => names.map((_, i) => i).filter((i) => i !== cluerIndex());
 
-  const cluerIndex = () => round % 2; // players[0] = host
-  const iAmCluer = () => (isHost ? cluerIndex() === 0 : cluerIndex() === 1);
+  // ---- Waiting screens ----
+  function showWaitClue() {
+    phase = null;
+    screen(waitingView({ msg: `Waiting for ${names[cluerIndex()]}'s clue…`, disabled: true }));
+  }
+  function showCluerWait() {
+    phase = "cluer-wait";
+    screen(waitingView({ msg: `Watching the room guess · ${progress.count}/${progress.total} in`, clue, disabled: true }));
+  }
+  function showGuesserWait(pick) {
+    phase = "guesser-wait";
+    showGuesserWait.pick = pick ?? showGuesserWait.pick ?? null;
+    screen(waitingView({ msg: `Guess locked · ${progress.count}/${progress.total} in`, clue, pick: showGuesserWait.pick, disabled: true }));
+  }
+  function redrawProgress() {
+    if (phase === "cluer-wait") showCluerWait();
+    else if (phase === "guesser-wait") showGuesserWait();
+  }
 
   // ---- Clue-giver UI ----
   function showClue() {
+    phase = null;
     screen(el("div", { class: "card" }, [
       el("div", { class: "pill" }, "Your secret colour 🤫"),
       el("div", { class: "swatch", style: `background:${cellColor(target.r, target.c)}; margin:12px 0` }),
@@ -147,31 +161,28 @@ function onlineGame(ctx) {
       clueInput((text) => {
         clue = text;
         if (isHost) startGuessPhase();
-        else {
-          session.send("hues_clue", { clue: text });
-          showWaiting({ msg: `Sent! Waiting for ${session.partnerName} to guess…`, clue: text });
-        }
+        else session.send("hues_clue", { round, clue: text });
+        showCluerWait();
       }),
     ]));
   }
 
   // ---- Guesser UI ----
   function showGuess(theClue) {
-    waitingOpts = null;
+    phase = null;
+    showGuesserWait.pick = null;
     let pick = null;
     const hint = el("p", { class: "center muted", style: "margin:8px 0 0" }, "Tap a colour to start exploring.");
     const lockBtn = button("Lock in guess 🎯", { big: true, disabled: true, onClick: () => {
       if (!pick) return;
-      if (isHost) hostReveal(pick);
-      else {
-        session.send("hues_guess", { cell: pick });
-        showWaiting({ msg: "Checking…", clue: theClue, pick });
-      }
+      guesses[session.myIndex] = pick;
+      showGuesserWait(pick);
+      if (isHost) recordGuess(session.myIndex, pick);
+      else session.send("hues_guess", { round, cell: pick });
     } });
     const gridWrap = grid({ onPick: (cell) => {
       pick = cell;
       markGrid(gridWrap, "pick", cell);     // move my highlight in place, no re-render
-      session.send("hues_preview", { cell }); // let the clue-giver watch live
       hint.textContent = "Tap around — lock in when you're sure.";
       lockBtn.disabled = false;
     } });
@@ -183,70 +194,117 @@ function onlineGame(ctx) {
     ]));
   }
 
+  // ---- Host round control ----
+  function hostNewRound() {
+    if (!isHost) return;
+    target = randCell();
+    clue = "";
+    guesses = names.map(() => null);
+    progress = { count: 0, total: Math.max(1, N - 1) };
+    const cluer = cluerIndex();
+    session.send("hues_round", { round, cluer });
+    if (cluer === session.myIndex) showClue();      // host is clue-giver
+    else {
+      session.sendTo(cluer, "hues_target", { round, cell: target });
+      showWaitClue();                                // host is a guesser, waits for clue
+    }
+  }
+  function startGuessPhase() {
+    if (!isHost) return;
+    progress = { count: 0, total: Math.max(1, N - 1) };
+    session.send("hues_guessnow", { round, clue });
+    if (iAmCluer()) showCluerWait();
+    else showGuess(clue);
+  }
+
+  function recordGuess(i, cell) {
+    if (!isHost || i === cluerIndex() || guesses[i] != null) return;
+    guesses[i] = cell;
+    progress = { count: guesserIndices().filter((g) => guesses[g] != null).length, total: Math.max(1, N - 1) };
+    session.send("hues_progress", { round, count: progress.count, total: progress.total });
+    redrawProgress();
+    if (guesserIndices().every((g) => guesses[g] != null)) hostReveal();
+  }
+
   // ---- Reveal ----
-  function hostReveal(guess) {
-    const d = distance(target, guess);
-    const pts = pointsFor(d);
-    team.total += pts; team.best = Math.max(team.best, pts);
-    const payload = { target, guess, clue, pts, team, round };
+  function hostReveal() {
+    if (!isHost) return;
+    const points = names.map((_, i) => (i === cluerIndex() || guesses[i] == null) ? null : pointsFor(distance(target, guesses[i])));
+    const roundPoints = points.reduce((sum, p) => sum + (p || 0), 0);
+    team.total += roundPoints;
+    team.best = Math.max(team.best, roundPoints);
+    const payload = { round, cluer: cluerIndex(), target, clue, guesses: guesses.slice(), points, roundPoints, team };
     session.send("hues_reveal", payload);
     showReveal(payload);
   }
 
   function showReveal(p) {
-    if (p.pts >= 4) celebrate();
+    phase = null;
+    if (p.roundPoints >= 4) celebrate();
+    const guessCells = p.guesses.filter((g, i) => i !== p.cluer && g != null);
+    const rows = names.map((name, i) => {
+      if (i === p.cluer) return el("div", { class: "answer-card me" }, [
+        el("span", { class: "who" }, `${name} (clue-giver)`),
+        el("span", { class: "val" }, "🤫"),
+      ]);
+      return el("div", { class: "answer-card reveal-anim" }, [
+        el("span", { class: "who" }, name),
+        el("span", { class: "val" }, p.points[i] == null ? "—" : `+${p.points[i]}`),
+      ]);
+    });
     const next = onlineReadyGate(session, `hues:${p.round}`, () => {
       if (isHost) { round++; hostNewRound(); }
     }, { label: "Ready for next" });
     screen(el("div", { class: "screen" }, [
       el("div", { class: "center" }, [el("span", { class: "muted" }, "Clue was"), el("div", { class: "clue-tag", style: "margin:8px 0 14px" }, p.clue)]),
-      grid({ target: p.target, guess: p.guess, disabled: true }),
-      el("div", { class: "verdict match", style: "margin-top:14px" }, `🎯 +${p.pts} points`),
+      grid({ target: p.target, guesses: guessCells, disabled: true }),
+      el("div", { class: "verdict match", style: "margin-top:14px" }, `🎯 +${p.roundPoints} this round`),
+      el("div", { class: "stack" }, rows),
       el("div", { class: "scorebar" }, [scoreChip(p.team.total, "team total"), scoreChip(p.team.best, "best round")]),
-      el("p", { class: "center muted" }, p.pts === 5 ? "Bullseye! Perfect read 💞" : p.pts >= 3 ? "So close!" : "Tricky one — swap and try again."),
       el("div", { class: "footer-actions" }, next),
     ]));
   }
 
-  // ---- Host round control ----
-  function hostNewRound() {
-    resetRoundState();
-    target = randCell();
-    clue = "";
-    if (cluerIndex() === 0) {
-      // host clues
-      session.send("hues_phase", { phase: "wait", msg: `Waiting for ${session.partnerName}'s clue…` });
-      showClue();
-    } else {
-      // guest clues
-      session.send("hues_target", { cell: target });
-      showWaiting({ msg: `Waiting for ${session.partnerName}'s clue…` });
-    }
-  }
-  function startGuessPhase() {
-    // called on host after a clue exists; figure out who guesses
-    partnerPreview = null;
-    if (cluerIndex() === 0) {
-      // host clued → guest guesses
-      session.send("hues_guessnow", { clue });
-      showWaiting({ msg: `Waiting for ${session.partnerName} to guess…`, clue });
-    } else {
-      // guest clued → host guesses
-      showGuess(clue);
-    }
-  }
-
   // ---- Messages ----
-  session.on("hues_target", (m) => { target = m.cell; showClue(); });
-  session.on("hues_phase", (m) => { if (m.phase === "wait") showWaiting({ msg: m.msg }); });
-  session.on("hues_clue", (m) => { clue = m.clue; startGuessPhase(); });      // host only path
-  session.on("hues_guessnow", (m) => { clue = m.clue; partnerPreview = null; showGuess(m.clue); });  // guest guesser
-  session.on("hues_preview", (m) => { partnerPreview = m.cell; refreshWaiting(); });
-  session.on("hues_guess", (m) => { hostReveal(m.cell); });                    // host computes
-  session.on("hues_reveal", (m) => { team = m.team; round = m.round; waitingOpts = null; showReveal(m); });
+  session.on("hues_round", (m) => {
+    if (isHost) return;
+    round = m.round;
+    clue = "";
+    if (session.myIndex !== m.cluer) showWaitClue();   // guessers wait for the clue; the cluer waits for hues_target
+  });
+  session.on("hues_target", (m) => {
+    if (m.round !== round) return;
+    target = m.cell;
+    showClue();                                        // I'm the clue-giver this round
+  });
+  session.on("hues_clue", (m) => {                     // guest cluer → host
+    if (!isHost || m.round !== round) return;
+    clue = m.clue;
+    startGuessPhase();
+  });
+  session.on("hues_guessnow", (m) => {
+    if (m.round !== round) return;
+    clue = m.clue;
+    if (iAmCluer()) showCluerWait();                   // guest cluer waits while others guess
+    else showGuess(m.clue);
+  });
+  session.on("hues_guess", (m) => {                    // guesser → host
+    if (!isHost || m.round !== round) return;
+    recordGuess(m.from, m.cell);
+  });
+  session.on("hues_progress", (m) => {
+    if (m.round !== round) return;
+    progress = { count: m.count, total: m.total };
+    redrawProgress();
+  });
+  session.on("hues_reveal", (m) => {
+    if (isHost) return;
+    team = m.team; round = m.round;
+    showReveal(m);
+  });
 
   if (isHost) hostNewRound();
-  else showWaiting({ msg: `Waiting for ${session.partnerName} to start…` });
+  else showWaitClue();
 }
 
 /* ---------------- LOCAL (pass the phone) ---------------- */

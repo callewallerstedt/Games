@@ -138,8 +138,10 @@ function online(ctx) {
 
   function submitAccusation(accusation) {
     accusations[session.myIndex] = accusation;
-    if (session.isHost) checkAccusations(); else session.send("crime_accuse", { round, accusation });
+    // Waiting screen first: checkAccusations() may render the reveal synchronously
+    // when the host accuses last, and that must not be overwritten.
     wait("Accusation locked. Waiting for the other detectives.");
+    if (session.isHost) checkAccusations(); else session.send("crime_accuse", { round, accusation });
   }
 
   function checkAccusations() {

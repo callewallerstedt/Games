@@ -71,9 +71,11 @@ function online(ctx) {
 
   function submitAnswer(answer) {
     answers[session.myIndex] = answer;
+    // Waiting screen first: checkAnswers() may render the discussion screen
+    // synchronously when the host answers last, and that must not be overwritten.
+    wait("Answer locked. Waiting for everyone.");
     if (session.isHost) checkAnswers();
     else session.send("imp_answer", { round, answer });
-    wait("Answer locked. Waiting for everyone.");
   }
 
   function startRound() {
@@ -130,8 +132,10 @@ function online(ctx) {
 
   function submitVote(vote) {
     votes[session.myIndex] = vote;
-    if (session.isHost) checkVotes(); else session.send("imp_vote", { round, vote });
+    // Waiting screen first: checkVotes() may render the reveal synchronously
+    // when the host votes last, and that must not be overwritten.
     wait("Vote locked. Waiting for the room.");
+    if (session.isHost) checkVotes(); else session.send("imp_vote", { round, vote });
   }
 
   function checkVotes() {

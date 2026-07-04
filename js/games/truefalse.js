@@ -74,9 +74,11 @@ function online(ctx) {
   function showQuestion(statement) {
     screen(choiceView(names[session.myIndex], statement, (value) => {
       picks[session.myIndex] = value;
+      // Waiting screen first: checkReveal() may render the reveal synchronously
+      // when the host locks in last, and that must not be overwritten.
+      wait("Answer locked. Waiting for everyone else.");
       if (session.isHost) checkReveal();
       else session.send("tf_pick", { value, round });
-      wait("Answer locked. Waiting for everyone else.");
     }));
   }
 

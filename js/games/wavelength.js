@@ -257,9 +257,12 @@ function online(ctx) {
   function showGuess() {
     screen(guessScreen(spectrum, names[session.myIndex], (value) => {
       guesses[session.myIndex] = value;
+      // Render the waiting screen first — checkReveal() below may synchronously
+      // render the reveal (when the host is the last to lock in), and that must
+      // win, not get overwritten by this waiting screen.
+      screen(waiting("Guess locked. Waiting for the room."));
       if (session.isHost) { pushCluerLive(); checkReveal(); }
       else session.send("wave_guess_value", { round, value });
-      screen(waiting("Guess locked. Waiting for the room."));
     }, submitSlide));
   }
 

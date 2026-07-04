@@ -18,7 +18,7 @@ the game data then flows directly between the two phones.
 | 💬 **Deep Dive** | A conversation card deck with levels — Cute → Deep → Spicy. No points, just real talk. |
 | 🕵️ **Impostor** | 3–10 players, one phone. Everyone answers the same question except one secret impostor with a different one. Discuss and vote who's the odd one out. |
 | 🐮 **Think Alike** | You both secretly answer the same simple question, then it reveals at the same time. Match = you think alike! (One phone supports 2–8 players with the classic Pink Cow 🐷.) |
-| 🎨 **Color Clue** | One person sees a secret colour and gives a 1–2 word clue; the other taps it on the spectrum. The closer the guess, the more points. Co-op — swap roles and beat your high score. |
+| 🎨 **Color Clue** | One person sees a secret colour and gives a 1–2 word clue; everyone else taps it on the spectrum. The closer each guess, the more points. Co-op for 2–8 — the clue-giver rotates each round and every guess feeds one shared team score. |
 | ⚓ **Fleet Strike** | Place five ships, then trade coordinate shots. Separate attack and defence boards keep every hit, miss, and sunk ship clear. |
 | 🎲 **Liar's Dice** | Bid on all hidden dice, raise the stakes, or call the previous player's bluff. |
 | ⏱️ **Letter Rush** | Shout an answer in the category, tap its first letter, and pass the turn before time expires. |
@@ -29,7 +29,7 @@ the game data then flows directly between the two phones.
 | 🔐 **Neon Code** | Create a hidden four-symbol sequence, then use exact and near-match clues to crack it in eight guesses. |
 | ⚡ **Flash Duel** | Face each other across one phone, survive the fake signals, and race to tap first when the screen flashes. |
 | 📱 **New Phone Who Dis?** | Reply to a mystery text with the funniest of your 5 absurd cards. Replies reveal anonymously, everyone votes, the best one scores. Edit the cards in `js/data/newphone.js`. |
-| 💰 **Millionaire** | Climb the 15-question money ladder to $1,000,000 with 50:50, Ask the Audience and Phone a Friend lifelines. Play all together as one team or split into rival teams. Questions live in `js/data/millionaire.js`. |
+| 💰 **Millionaire** | Climb the 15-question money ladder to $1,000,000 with 50:50, Ask the Audience and Phone a Friend lifelines. Play all together as one team, or split into rival teams that battle head-to-head — right answers score +1, misses lose a point but never knock a team out, so it's team-vs-team all the way to the end. Solo hot-seat keeps the classic one-wrong-you're-out run. Questions live in `js/data/millionaire.js`. |
 | 🧠 **Jeopardy** | Pick a theme, then take turns choosing clues off a 5×5 board (100→500 points). Right answers keep the points and the turn; wrong answers lose the points and pass it on. Most points when the board clears wins. Themes and questions live in `js/data/jeopardy.js`. |
 
 Installable as a home-screen app (PWA): on iPhone, open in Safari → Share → **Add to Home

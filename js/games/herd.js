@@ -112,9 +112,12 @@ function onlineGame(ctx) {
   function showAnswer(q) {
     const { wrap } = answerInput((val) => {
       answers[session.myIndex] = val;
+      // Show the waiting screen before the host reveal check — hostTryReveal()
+      // may render the reveal synchronously (host answered last) and that must
+      // not be clobbered by this waiting screen.
+      showWaiting(q, val);
       if (session.isHost) hostTryReveal();
       else session.send("herd_answer", { text: val, round });
-      showWaiting(q, val);
     });
     screen(el("div", { class: "card" }, [
       el("div", { class: "pill" }, "Secret answer"),

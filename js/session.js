@@ -16,7 +16,11 @@ export function onlineSession(transport, opts) {
   const stopData = transport.onData((msg) => {
     if (!msg?.t) return;
     const enriched = { ...msg, from: resolveFrom(msg) ?? msg.from };
-    if (handlers[msg.t]) handlers[msg.t].forEach((fn) => fn(enriched));
+    // Isolate handlers: one throwing handler must not abort the others or the
+    // transport callback, which would otherwise strand a round mid-transition.
+    if (handlers[msg.t]) handlers[msg.t].forEach((fn) => {
+      try { fn(enriched); } catch (err) { console.error(`[session] handler for "${msg.t}" threw`, err); }
+    });
   });
   const stopStatus = transport.onStatus((s) => statusHandlers.forEach((fn) => fn(s)));
 
@@ -66,7 +70,12 @@ export function onlineSession(transport, opts) {
         transport.send(msg, peerId);
       }
     },
-    on: (t, fn) => { (handlers[t] ||= []).push(fn); },
+    on: (t, fn) => {
+      (handlers[t] ||= []).push(fn);
+      // Return an unsubscribe so per-round widgets (e.g. the ready gate) can
+      // detach their listeners instead of piling up every round.
+      return () => { const arr = handlers[t]; const i = arr ? arr.indexOf(fn) : -1; if (i >= 0) arr.splice(i, 1); };
+    },
     onStatus: (fn) => statusHandlers.push(fn),
     destroy: () => {
       stopData?.();
@@ -93,7 +102,7 @@ export function localSession(players, playerColors = [], settings = {}) {
     send() {},
     sendPrivate() {},
     sendTo() {},
-    on() {},
+    on() { return () => {}; },
     onStatus() {},
   };
 }

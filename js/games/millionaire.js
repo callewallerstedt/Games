@@ -28,22 +28,25 @@ const game = {
   modes: ["local", "online"],
   estMinutes: 15,
   rulesHTML: `
-    <p>Answer 15 trivia questions of rising difficulty to climb from <b>$100</b> to
-    <b>$1,000,000</b>. One wrong answer ends your run — but you keep your last
-    <b>safe haven</b> ($1,000 and $32,000 are guaranteed once reached).</p>
-    <h3>Teams</h3>
+    <p>Work through 15 trivia questions of rising difficulty, climbing the classic
+    money ladder from <b>$100</b> to <b>$1,000,000</b>.</p>
+    <h3>Teams (online)</h3>
     <ul>
       <li><b>All together</b> — the whole room is one team voting on each answer.</li>
-      <li><b>Rival teams</b> — split up; every team runs the same ladder and the
-      richest team at the end wins. Drag players between teams in the lobby.</li>
+      <li><b>Rival teams</b> — split up and go head-to-head. Every team answers the
+      same questions: a right answer is <b>+1 point</b>, a wrong answer is
+      <b>−1 point</b> (never below zero) — but nobody is knocked out, so teams keep
+      playing all the way to the end. Most points wins.</li>
     </ul>
+    <h3>Solo hot-seat (one phone)</h3>
+    <p>Pass-and-play: each contestant climbs the ladder and one wrong answer ends
+    their run, keeping the last <b>safe haven</b> ($1,000 and $32,000 are guaranteed).</p>
     <h3>Lifelines (once each)</h3>
     <ul>
       <li><b>50:50</b> — removes two wrong answers.</li>
       <li><b>Ask the Audience</b> — a poll suggests an answer.</li>
       <li><b>Phone a Friend</b> — a friend gives their best guess.</li>
-    </ul>
-    <p class="muted">You can <b>walk away</b> any time to bank what you've earned.</p>`,
+    </ul>`,
   mount(ctx) { if (ctx.mode === "online") onlineGame(ctx); else localGame(ctx); },
 };
 
@@ -264,7 +267,7 @@ function onlineGame(ctx) {
     if (!isHost || !canStart()) return;
     teams = Array.from({ length: teamCount }, (_, t) => ({
       members: names.map((n, i) => i).filter((i) => teamOf[i] === t),
-      banked: 0, out: false, walked: false, won: false,
+      banked: 0, points: 0, out: false, walked: false, won: false,
       locked: false, lockedAnswer: null, votes: {},
       lifelines: { fifty: false, audience: false, phone: false },
     }));
@@ -296,7 +299,7 @@ function onlineGame(ctx) {
       q: { q: q.q, options: q.options },
       teamCount, teamOf,
       teams: teams.map((tm) => ({
-        members: tm.members, banked: tm.banked, out: tm.out, walked: tm.walked, won: tm.won,
+        members: tm.members, banked: tm.banked, points: tm.points, out: tm.out, walked: tm.walked, won: tm.won,
         locked: tm.locked, lifelines: tm.lifelines, tally: tallyOf(tm),
       })),
     };
@@ -311,23 +314,27 @@ function onlineGame(ctx) {
 
   function doReveal() {
     const correct = q.correct;
+    const lastRung = rung + 1 >= LADDER.length;
     const results = teams.map((tm) => {
-      if (tm.out) return { out: true, walked: tm.walked, won: tm.won, banked: tm.banked, answer: tm.lockedAnswer, correct: false };
+      if (tm.out) return { out: true, walked: tm.walked, won: tm.won, banked: tm.banked, points: tm.points, answer: tm.lockedAnswer, correct: false, delta: 0 };
       const ans = tm.locked ? tm.lockedAnswer : plurality(tm);
       const right = ans === correct;
       if (right) {
+        tm.points += 1;
         tm.banked = LADDER[rung];
-        if (rung + 1 >= LADDER.length) { tm.out = true; tm.won = true; }
-        return { answer: ans, correct: true, banked: tm.banked, won: tm.won, out: tm.out };
+        if (lastRung) { tm.out = true; tm.won = true; }
+        return { answer: ans, correct: true, banked: tm.banked, points: tm.points, delta: 1, won: tm.won, out: tm.out };
       }
-      tm.out = true;
-      tm.banked = safeHavenValue(rung - 1);
-      return { answer: ans, correct: false, banked: tm.banked, out: true };
+      // A miss no longer ends the run — the team just loses a point (never below
+      // zero) and keeps climbing, so rival teams can keep playing head-to-head.
+      tm.points = Math.max(0, tm.points - 1);
+      if (lastRung) tm.out = true;
+      return { answer: ans, correct: false, banked: tm.banked, points: tm.points, delta: -1, out: tm.out };
     });
     const payload = {
       phase: "reveal", rung, correct, q: { q: q.q, options: q.options },
       teamCount, teamOf, results,
-      teams: teams.map((tm) => ({ members: tm.members, banked: tm.banked, out: tm.out, won: tm.won })),
+      teams: teams.map((tm) => ({ members: tm.members, banked: tm.banked, points: tm.points, out: tm.out, won: tm.won })),
     };
     session.send("mm_reveal", payload);
     applyReveal(payload);
@@ -343,7 +350,7 @@ function onlineGame(ctx) {
   function endGame() {
     const standings = teams.map((tm, t) => ({
       name: teamName(teamCount, t), color: teamColor(t),
-      banked: tm.banked, won: !!tm.won, members: tm.members.map((i) => names[i]),
+      banked: tm.banked, points: tm.points, won: !!tm.won, members: tm.members.map((i) => names[i]),
     }));
     session.send("mm_over", { standings });
     showOver(standings);
@@ -416,20 +423,20 @@ function onlineGame(ctx) {
 
     const header = el("div", { class: "mm-quiz-head" }, [
       el("span", { class: "mm-prize", style: `--team:${teamColor(t)}` }, [
-        el("b", {}, teamName(state.teamCount, t)),
-        el("span", {}, `Playing for ${money(state.ladderValue)}`),
+        el("b", {}, `${teamName(state.teamCount, t)} · ${tm.points ?? 0} pts`),
+        el("span", {}, `Question worth $${LADDER[state.rung].toLocaleString("en-US")} · +1 / −1 point`),
       ]),
       state.teamCount > 1
         ? el("div", { class: "mm-rivals" }, otherTeams.map((x) => el("span", {
             class: `mm-rival ${x.teamState.out ? "out" : ""}`.trim(), style: `--team:${teamColor(x.idx)}`,
-          }, [el("i", {}), `${teamName(state.teamCount, x.idx)} · ${money(x.teamState.banked)}${x.teamState.out ? "" : ` · ${x.teamState.locked ? "locked" : "deciding"}`}`])))
+          }, [el("i", {}), `${teamName(state.teamCount, x.idx)} · ${x.teamState.points ?? 0} pts${x.teamState.out ? "" : ` · ${x.teamState.locked ? "locked" : "deciding"}`}`])))
         : null,
     ]);
 
     if (iAmOut) {
       frame(el("div", { class: "mm-quiz spectator" }, [
         header,
-        el("div", { class: "mm-banked-note" }, tm.won ? "🏆 You hit the million!" : `Your team is out with ${money(tm.banked)}.`),
+        el("div", { class: "mm-banked-note" }, tm.won ? "🏆 Million reached!" : `Your team finished on ${tm.points ?? 0} pts.`),
         el("div", { class: "mm-question" }, state.q.q),
         answerGrid({ options: state.q.options, disabled: true }),
         el("p", { class: "muted center" }, state.teamCount > 1 ? "Watching the rival teams play on…" : "Waiting for the round to wrap up…"),
@@ -458,10 +465,7 @@ function onlineGame(ctx) {
       lifelineRow(tm.lifelines, { disabled: tm.locked, onUse: act.lifeline }),
       tm.locked
         ? el("div", { class: "waiting compact-wait" }, [el("div", { class: "spinner" }), state.teamCount > 1 ? "Locked in — waiting for rival teams…" : "Locked in — revealing…"])
-        : el("div", { class: "mm-actions" }, [
-            lockBtn,
-            button("Walk away with " + money(state.rung > 0 ? LADDER[state.rung - 1] : 0), { variant: "secondary", onClick: act.walk }),
-          ]),
+        : el("div", { class: "mm-actions" }, [lockBtn]),
       isHost ? el("div", { class: "mm-host-tools" }, button("Force reveal", { variant: "ghost", onClick: hostForceReveal })) : null,
     ]));
   }
@@ -485,11 +489,12 @@ function onlineGame(ctx) {
     const rows = rev.results.map((res, idx) => {
       if (rev.teamCount === 1 && idx !== t) return null;
       const right = res.correct;
-      const label = res.out && res.walked ? "walked away" : res.won ? "WON $1,000,000!" : right ? "correct! advancing" : res.out ? "wrong — out" : "";
-      return el("div", { class: `mm-result ${right ? "ok" : res.out ? "bad" : ""}`.trim(), style: `--team:${teamColor(idx)}` }, [
+      const label = res.walked ? "walked away" : res.won ? "WON — million reached! 🏆"
+        : right ? "correct · +1 point" : res.out ? "wrong · −1 point" : "wrong · −1 point (keep going)";
+      return el("div", { class: `mm-result ${right ? "ok" : "bad"}`.trim(), style: `--team:${teamColor(idx)}` }, [
         el("b", {}, teamName(rev.teamCount, idx)),
         el("span", {}, `${res.answer != null ? LETTERS[res.answer] + " · " : ""}${label}`),
-        el("strong", {}, money(res.banked)),
+        el("strong", {}, `${res.points ?? 0} pts`),
       ]);
     });
     const activeLeft = rev.teams.filter((tm) => !tm.out).length;
@@ -504,20 +509,24 @@ function onlineGame(ctx) {
   }
 
   function showOver(standings) {
-    const ranked = standings.slice().sort((a, b) => b.banked - a.banked);
+    const ranked = standings.slice().sort((a, b) => (b.points - a.points) || (b.banked - a.banked));
     const top = ranked[0];
-    if (top && top.banked > 0) celebrate();
+    const topPts = top ? top.points : 0;
+    const tie = ranked.filter((s) => s.points === topPts).length > 1;
+    if (topPts > 0) celebrate();
     frame(el("div", { class: "mm-over" }, [
       logo(),
-      el("h1", { class: "mm-over-title" }, top && top.banked > 0
-        ? (standings.length > 1 ? `${top.name} wins with ${money(top.banked)}!` : `You banked ${money(top.banked)}!`)
-        : "No money this time — play again!"),
+      el("h1", { class: "mm-over-title" }, topPts > 0
+        ? (standings.length > 1
+            ? (tie ? `It's a tie at ${topPts} pts!` : `${top.name} wins with ${topPts} pts!`)
+            : `You scored ${topPts} pts!`)
+        : "No points this time — play again!"),
       el("div", { class: "mm-standings" }, ranked.map((s, i) => el("div", {
-        class: `mm-standing ${i === 0 && s.banked > 0 ? "winner" : ""}`.trim(), style: `--team:${s.color}`,
+        class: `mm-standing ${i === 0 && topPts > 0 && !tie ? "winner" : ""}`.trim(), style: `--team:${s.color}`,
       }, [
         el("span", { class: "mm-standing-place" }, ["🥇", "🥈", "🥉"][i] || `#${i + 1}`),
         el("span", { class: "mm-standing-name" }, `${s.name}${s.won ? " 👑" : ""}`),
-        el("strong", {}, money(s.banked)),
+        el("strong", {}, `${s.points ?? 0} pts`),
       ]))),
       el("p", { class: "muted center tiny" }, "Teams: " + standings.map((s) => `${s.name} (${s.members.join(", ")})`).join(" · ")),
       el("div", { class: "footer-actions" }, isHost

@@ -174,9 +174,11 @@ function online(ctx) {
   function showForm(payload) {
     screen(answerForm(payload.letter, payload.categories, names[session.myIndex], payload.seconds, (values) => {
       answers[session.myIndex] = values;
+      // Waiting screen first: maybeFinish() may render the results synchronously
+      // when the host submits last, and that must not be overwritten.
+      screen(el("div", { class: "card center" }, [el("div", { class: "spinner" }), el("p", { class: "muted" }, "Answers locked. Waiting for the room.")]));
       if (session.isHost) maybeFinish();
       else session.send("cat_answers", { round: payload.round, values });
-      screen(el("div", { class: "card center" }, [el("div", { class: "spinner" }), el("p", { class: "muted" }, "Answers locked. Waiting for the room.")]));
     }));
   }
 
