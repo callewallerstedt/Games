@@ -110,6 +110,9 @@ function finishSignIn(body) {
   try {
     localStorage.setItem(TOKEN_KEY, body.token);
     localStorage.setItem(NAME_KEY, body.username);
+    // Your account name is your identity in games too — adopt it as the player
+    // name the hub, lobby and every game read from ("together_name").
+    localStorage.setItem("together_name", body.username);
   } catch {}
   absorb(body);
   startHeartbeat();

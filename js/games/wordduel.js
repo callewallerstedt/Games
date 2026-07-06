@@ -74,27 +74,69 @@ function secretInput(wordLen, label, onDone) {
   ]);
 }
 
-function guessForm(wordLen, label, onDone) {
+// Best clue colour seen for each letter across a player's guess history so far.
+const KEY_ROWS = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
+function letterStates(history) {
+  const rank = { absent: 1, present: 2, correct: 3 };
+  const states = {};
+  (history || []).forEach((row) => {
+    (row.letters || []).forEach((letter, i) => {
+      const fb = row.feedback?.[i];
+      if (!letter || !fb) return;
+      const L = letter.toUpperCase();
+      if (!states[L] || rank[fb] > rank[states[L]]) states[L] = fb;
+    });
+  });
+  return states;
+}
+
+function keyboard(history, { onKey, onEnter, onBack }) {
+  const states = letterStates(history);
+  return el("div", { class: "wd-keyboard" }, KEY_ROWS.map((rowStr, ri) => {
+    const keys = rowStr.split("").map((L) =>
+      el("button", { class: `wd-key ${states[L] || ""}`.trim(), type: "button", onClick: () => onKey(L) }, L));
+    if (ri === 2) {
+      keys.unshift(el("button", { class: "wd-key wd-key-wide", type: "button", onClick: onEnter }, "Enter"));
+      keys.push(el("button", { class: "wd-key wd-key-wide", type: "button", onClick: onBack }, "⌫"));
+    }
+    return el("div", { class: "wd-krow" }, keys);
+  }));
+}
+
+function guessForm(wordLen, label, history, onDone) {
+  let buffer = "";
   const input = el("input", {
     class: "field wd-secret-input",
     type: "text",
-    maxlength: String(wordLen),
-    placeholder: "Your guess…",
-    autocomplete: "off",
-    autocapitalize: "characters",
-    spellcheck: "false",
-    enterkeyhint: "go",
+    readonly: "",              // no device keyboard — use the on-screen one
+    inputmode: "none",
+    placeholder: "Tap the keys…",
+    "aria-label": "Your guess",
   });
-  const btn = button("Submit guess", { big: true, disabled: true, onClick: () => {
-    const w = input.value.trim().toLowerCase();
-    if (acceptWord(w, wordLen)) onDone(w);
-  } });
-  input.addEventListener("input", () => {
-    btn.disabled = !acceptWord(input.value.trim().toLowerCase(), wordLen);
-  });
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) btn.click(); });
-  setTimeout(() => input.focus(), 40);
-  return el("div", { class: "card stack" }, [el("div", { class: "pill" }, label), input, btn]);
+  const btn = button("Submit guess", { big: true, disabled: true, onClick: submit });
+  function refresh() {
+    input.value = buffer.toUpperCase();
+    btn.disabled = !acceptWord(buffer, wordLen);
+  }
+  function type(L) { if (buffer.length < wordLen) { buffer += L.toLowerCase(); refresh(); } }
+  function back() { buffer = buffer.slice(0, -1); refresh(); }
+  function submit() {
+    const w = buffer.trim().toLowerCase();
+    if (!acceptWord(w, wordLen)) return;
+    cleanup();
+    onDone(w);
+  }
+  // Physical keyboard support (desktop) alongside the on-screen keys.
+  const onKeydown = (e) => {
+    if (!input.isConnected) { cleanup(); return; }
+    if (e.key === "Enter") { if (!btn.disabled) submit(); }
+    else if (e.key === "Backspace") { e.preventDefault(); back(); }
+    else if (/^[a-zA-Z]$/.test(e.key)) type(e.key);
+  };
+  function cleanup() { window.removeEventListener("keydown", onKeydown); }
+  window.addEventListener("keydown", onKeydown);
+  const kb = keyboard(history, { onKey: type, onEnter: submit, onBack: back });
+  return el("div", { class: "card stack" }, [el("div", { class: "pill" }, label), input, kb, btn]);
 }
 
 function waiting(msg) {
@@ -179,7 +221,7 @@ function online(ctx) {
     }
     screen(el("div", { class: "stack" }, [
       board(histories[myIndex], wordLen),
-      guessForm(wordLen, `Guess ${names[opponent(myIndex)]}'s word (${guessCounts[myIndex] + 1}/${maxGuesses})`, (word) => {
+      guessForm(wordLen, `Guess ${names[opponent(myIndex)]}'s word (${guessCounts[myIndex] + 1}/${maxGuesses})`, histories[myIndex], (word) => {
         haptic(8);
         if (isHost) {
           afterGuess(myIndex, word, scoreGuess(secrets[opponent(myIndex)], word));
@@ -274,7 +316,7 @@ function local(ctx) {
     passDevice(names[turn], `Your turn — guess ${names[opponent(turn)]}'s word!`).then(() => {
       screen(el("div", { class: "stack" }, [
         board(histories[turn], wordLen),
-        guessForm(wordLen, `${names[turn]} (${guessCounts[turn] + 1}/${maxGuesses})`, (word) => {
+        guessForm(wordLen, `${names[turn]} (${guessCounts[turn] + 1}/${maxGuesses})`, histories[turn], (word) => {
           haptic(8);
           afterGuess(turn, word, scoreGuess(secrets[opponent(turn)], word));
         }),

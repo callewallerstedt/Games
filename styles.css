@@ -1680,6 +1680,21 @@ p { margin: 0 0 .8em; }
 .wd-tile.absent { background: #787c7e; border-color: #787c7e; color: #fff; }
 .wd-secret-input { text-transform: uppercase; letter-spacing: .12em; font-weight: 800; text-align: center; }
 
+/* On-screen keyboard with Wordle-style colour hints */
+.wd-keyboard { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 2px; touch-action: manipulation; }
+.wd-krow { display: flex; gap: 5px; justify-content: center; }
+.wd-key {
+  appearance: none; flex: 1 1 auto; min-width: 0; height: 48px; padding: 0;
+  border: 0; border-radius: 7px; background: var(--surface-2); color: var(--text);
+  font-family: inherit; font-weight: 800; font-size: .95rem; text-transform: uppercase;
+  cursor: pointer; box-shadow: var(--shadow-sm); transition: transform .05s ease, filter .1s ease;
+}
+.wd-key:active { transform: translateY(1px) scale(.97); filter: brightness(1.08); }
+.wd-key-wide { flex: 1.5 1 auto; font-size: .74rem; letter-spacing: .02em; }
+.wd-key.correct { background: #6aaa64; color: #fff; }
+.wd-key.present { background: #c9b458; color: #fff; }
+.wd-key.absent { background: #787c7e; color: #fff; }
+
 /* ---------- New Phone Who Dis? ---------- */
 .np-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .np-thread { display: flex; gap: 10px; align-items: flex-end; margin: 4px 0 16px; }

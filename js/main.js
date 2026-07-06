@@ -57,15 +57,24 @@ registerSW();
 probeSocial().then((available) => { if (available && isOnHub()) hub(); });
 
 const isOnHub = () => !location.hash || location.hash === "#/" || location.hash === "#";
-// Keep the friends badge fresh without re-rendering (and stealing focus from) the hub.
+// Keep the friends badge (and the hub's shown name) fresh without re-rendering
+// and stealing focus from the hub.
 onSocialChange(() => {
   const btn = document.querySelector(".friends-btn");
-  if (!btn) return;
-  const count = friendsBadgeCount();
-  let badge = btn.querySelector(".friends-badge");
-  if (!count) { badge?.remove(); return; }
-  if (!badge) { badge = el("span", { class: "friends-badge" }); btn.append(badge); }
-  badge.textContent = String(count);
+  if (btn) {
+    const count = friendsBadgeCount();
+    let badge = btn.querySelector(".friends-badge");
+    if (!count) { badge?.remove(); }
+    else {
+      if (!badge) { badge = el("span", { class: "friends-badge" }); btn.append(badge); }
+      badge.textContent = String(count);
+    }
+  }
+  // Signing in adopts the username as the player name — reflect it in the hub's
+  // compact profile chip immediately (skip while the edit field is focused).
+  const name = localStorage.getItem("together_name");
+  const chip = document.querySelector(".profile-compact-name");
+  if (chip && name && document.activeElement?.tagName !== "INPUT") chip.textContent = name;
 });
 
 function favoriteIds() {
