@@ -1,5 +1,12 @@
 // Small DOM + UI helpers shared across screens.
 
+import {
+  createTetrisGame,
+  normalizeTetrisGame,
+  pauseActiveTetris,
+  tetrisView,
+} from "./arcade-tetris.js";
+
 export function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -50,6 +57,7 @@ export function playerColor(name, fallback = PLAYER_COLORS[0]) {
 
 // Render a full screen into #app. `content` is a node or array of nodes.
 export function render(content) {
+  pauseActiveTetris();
   const app = clear($app());
   for (const c of [].concat(content)) if (c) app.append(c);
   decorateWaitingScreens(app);
@@ -76,6 +84,47 @@ export function hardRefreshSite() {
   run();
 }
 
+let brandTapCount = 0;
+let brandTapTimer = null;
+
+function onBrandTap() {
+  brandTapCount++;
+  clearTimeout(brandTapTimer);
+  if (brandTapCount >= 3) {
+    brandTapCount = 0;
+    showDebugMenu();
+    return;
+  }
+  brandTapTimer = setTimeout(() => {
+    if (brandTapCount === 1) hardRefreshSite();
+    brandTapCount = 0;
+  }, 450);
+}
+
+function showDebugMenu() {
+  const close = modal("Debug", el("div", { class: "stack", style: "gap:12px" }, [
+    button("Hard reset (clear cache & refresh)", { big: true, onClick: () => { close(); hardRefreshSite(); } }),
+    button("Show waiting arcade", { big: true, onClick: () => { close(); injectWaitingArcadePreview(); } }),
+  ]), { centered: true });
+}
+
+function injectWaitingArcadePreview() {
+  const app = $app();
+  if (!app) return;
+  const existing = app.querySelector(".waiting-arcade");
+  if (existing) {
+    existing.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    toast("Waiting arcade already on screen");
+    return;
+  }
+  const target = app.querySelector(".screen") || app;
+  const arcade = waitingArcadePanel();
+  const footer = target.querySelector(":scope > .footer-actions");
+  if (footer) target.insertBefore(arcade, footer);
+  else target.append(arcade);
+  arcade.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 export function topbar({ onBack, right } = {}) {
   return el("div", { class: "topbar" }, [
     onBack ? el("button", { class: "iconbtn", "aria-label": "Back", title: "Back", onClick: onBack }, "‹") : null,
@@ -83,8 +132,8 @@ export function topbar({ onBack, right } = {}) {
       class: "brand brand-refresh",
       type: "button",
       "aria-label": "Party Games — refresh for latest version",
-      title: "Refresh for latest version",
-      onClick: hardRefreshSite,
+      title: "Refresh for latest version (triple-tap for debug)",
+      onClick: onBrandTap,
     }, "Party Games"),
     el("div", { class: "spacer" }),
     right || null,
@@ -478,7 +527,6 @@ function ensureReactionDock() {
       onClick: (event) => {
         event.stopPropagation();
         sendReaction(emoji);
-        setReactionPalette(false);
       },
     }, emoji)));
   reactionDock = el("div", { class: "reaction-dock" }, [choices, main]);
@@ -570,15 +618,102 @@ const MINES_CONFIGS = {
   hard: { id: "hard", label: "Hard", rows: 10, cols: 10, mines: 16 },
 };
 const MINES_NUM_COLORS = ["", "#2563a6", "#178765", "#c2410c", "#7c3aed", "#be123c", "#0f766e", "#334155", "#111827"];
+const ARCADE_HIGHSCORES_KEY = "party_arcade_highscores_v1";
+
+function loadArcadeHighscores() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ARCADE_HIGHSCORES_KEY) || "{}");
+    return { merge: Number(raw.merge) || 0, minesWins: Number(raw.minesWins) || 0, tetris: Number(raw.tetris) || 0 };
+  } catch {
+    return { merge: 0, minesWins: 0, tetris: 0 };
+  }
+}
+
+function saveArcadeHighscores(scores) {
+  try { localStorage.setItem(ARCADE_HIGHSCORES_KEY, JSON.stringify(scores)); } catch {}
+}
+
+function recordMergeHighscore(score) {
+  const scores = loadArcadeHighscores();
+  const isNew = score > scores.merge;
+  if (isNew) {
+    scores.merge = score;
+    saveArcadeHighscores(scores);
+  }
+  return { best: Math.max(scores.merge, score), isNew: isNew && score > 0 };
+}
+
+function recordMinesClear() {
+  const scores = loadArcadeHighscores();
+  scores.minesWins += 1;
+  saveArcadeHighscores(scores);
+  return scores.minesWins;
+}
+
+function recordTetrisHighscore(score) {
+  const scores = loadArcadeHighscores();
+  const isNew = score > scores.tetris;
+  if (isNew) {
+    scores.tetris = score;
+    saveArcadeHighscores(scores);
+  }
+  return { best: Math.max(scores.tetris, score), isNew: isNew && score > 0 };
+}
+
+function recordTetrisEnd(game) {
+  if (game.status !== "lost" || game.scoreRecorded) return;
+  game.scoreRecorded = true;
+  game.scoreMeta = recordTetrisHighscore(game.score);
+}
+
+function recordMergeEnd(game) {
+  if (game.status === "running" || game.scoreRecorded) return;
+  game.scoreRecorded = true;
+  game.scoreMeta = recordMergeHighscore(game.score);
+}
+
+function minesRevealedCount(game) {
+  return game.cells.filter((cell) => cell.revealed && !cell.mine).length;
+}
+
+function minesSafeTotal(game) {
+  return game.cells.length - game.mineCount;
+}
+
+function arcadeGameOverCard({ tone, title, detail, scoreLabel, score, bestLabel, best, isNewRecord, onRestart }) {
+  return el("div", { class: "arcade-result-overlay", role: "dialog", "aria-label": title }, [
+    el("div", { class: "arcade-result-card" }, [
+      el("div", { class: `arcade-result-title ${tone}`.trim() }, title),
+      detail ? el("div", { class: "arcade-result-sub" }, detail) : null,
+      el("div", { class: "arcade-result-scores" }, [
+        el("div", { class: "arcade-result-stat" }, [
+          el("span", { class: "arcade-result-label" }, scoreLabel),
+          el("span", { class: "arcade-result-value" }, score),
+        ]),
+        el("div", { class: "arcade-result-stat" }, [
+          el("span", { class: "arcade-result-label" }, bestLabel),
+          el("span", { class: "arcade-result-value" }, best),
+        ]),
+      ]),
+      isNewRecord ? el("div", { class: "arcade-result-record" }, "New best!") : null,
+      el("button", { class: "arcade-restart", type: "button", onClick: onRestart }, "Play again"),
+    ]),
+  ]);
+}
+
+function arcadeBestBadge(label, value) {
+  if (!value) return null;
+  return el("span", { class: "arcade-best" }, [el("span", { class: "arcade-best-label" }, label), el("span", { class: "arcade-best-value" }, value)]);
+}
 
 function arcadeDefaults() {
-  return { tab: "mines", minesDifficulty: "easy", minesMode: "dig", mines: null, merge: null };
+  return { tab: "mines", minesDifficulty: "easy", minesMode: "dig", mines: null, merge: null, tetris: null };
 }
 
 function loadArcadeState() {
   try {
     const state = { ...arcadeDefaults(), ...JSON.parse(localStorage.getItem(WAITING_ARCADE_KEY) || "{}") };
-    if (!["mines", "merge"].includes(state.tab)) state.tab = "mines";
+    if (!["mines", "merge", "tetris"].includes(state.tab)) state.tab = "mines";
     if (!MINES_CONFIGS[state.minesDifficulty]) state.minesDifficulty = "easy";
     if (!["dig", "flag"].includes(state.minesMode)) state.minesMode = "dig";
     return state;
@@ -615,6 +750,9 @@ function waitingArcadePanel() {
   const state = loadArcadeState();
   if (!state.mines) state.mines = createMinesGame(state.minesDifficulty);
   if (!state.merge) state.merge = createMergeGame();
+  else state.merge = normalizeMergeGame(state.merge);
+  if (!state.tetris) state.tetris = createTetrisGame();
+  else state.tetris = normalizeTetrisGame(state.tetris);
   saveArcadeState(state);
   const panel = el("section", {
     class: "waiting-arcade",
@@ -630,23 +768,43 @@ function rerenderArcade(panel, mutator) {
   const state = loadArcadeState();
   if (!state.mines) state.mines = createMinesGame(state.minesDifficulty);
   if (!state.merge) state.merge = createMergeGame();
+  else state.merge = normalizeMergeGame(state.merge);
+  if (!state.tetris) state.tetris = createTetrisGame();
+  else state.tetris = normalizeTetrisGame(state.tetris);
   mutator?.(state);
   saveArcadeState(state);
   renderArcade(panel, state);
 }
 
 function renderArcade(panel, state) {
+  panel.__tetrisCleanup?.();
+  panel.__tetrisCleanup = null;
   const tab = (value, label) => el("button", {
     class: `arcade-tab ${state.tab === value ? "on" : ""}`.trim(),
     type: "button",
     onClick: () => rerenderArcade(panel, (next) => { next.tab = value; }),
   }, label);
+  const gameView = state.tab === "mines"
+    ? minesView(panel, state)
+    : state.tab === "merge"
+      ? mergeView(panel, state)
+      : tetrisView(panel, state, {
+        el,
+        saveArcadeState,
+        rerenderArcade,
+        loadArcadeHighscores,
+        recordTetrisHighscore,
+        recordTetrisEnd,
+        arcadeGameOverCard,
+        arcadeBestBadge,
+        bindSwipe,
+      });
   panel.replaceChildren(
     el("div", { class: "arcade-head" }, [
       el("div", { class: "arcade-title" }, "Waiting arcade"),
-      el("div", { class: "arcade-tabs" }, [tab("mines", "Mines"), tab("merge", "2048")]),
+      el("div", { class: "arcade-tabs" }, [tab("mines", "Mines"), tab("merge", "2048"), tab("tetris", "Tetris")]),
     ]),
-    state.tab === "mines" ? minesView(panel, state) : mergeView(panel, state),
+    gameView,
   );
 }
 
@@ -722,6 +880,10 @@ function revealMineCell(game, index) {
   if (game.cells.every((c) => c.mine || c.revealed)) {
     game.status = "won";
     game.cells.forEach((c) => { if (c.mine) c.flagged = true; });
+    if (!game.winRecorded) {
+      game.winRecorded = true;
+      recordMinesClear();
+    }
   }
 }
 
@@ -735,16 +897,20 @@ function toggleMineFlag(game, index) {
 function minesView(panel, state) {
   const game = state.mines && state.mines.cells ? state.mines : createMinesGame(state.minesDifficulty);
   state.mines = game;
+  const highscores = loadArcadeHighscores();
   const flagged = game.cells.filter((cell) => cell.flagged).length;
   const statusText = game.status === "won" ? "Cleared" : game.status === "lost" ? "Boom" : `${Math.max(0, game.mineCount - flagged)} left`;
+  const restartMines = () => rerenderArcade(panel, (next) => { next.mines = createMinesGame(next.minesDifficulty); });
   const diffButtons = Object.values(MINES_CONFIGS).map((cfg) => el("button", {
     class: `arcade-chip ${state.minesDifficulty === cfg.id ? "on" : ""}`.trim(),
     type: "button",
+    disabled: game.status === "lost",
     onClick: () => rerenderArcade(panel, (next) => { next.minesDifficulty = cfg.id; }),
   }, cfg.label));
   const modeButton = (mode, label) => el("button", {
     class: `arcade-icon ${state.minesMode === mode ? "on" : ""}`.trim(),
     type: "button",
+    disabled: game.status === "lost",
     title: mode === "dig" ? "Dig" : "Flag",
     "aria-label": mode === "dig" ? "Dig" : "Flag",
     onClick: () => rerenderArcade(panel, (next) => { next.minesMode = mode; }),
@@ -754,8 +920,9 @@ function minesView(panel, state) {
       ? cell.mine ? "💣" : cell.count ? String(cell.count) : ""
       : cell.flagged ? "⚑" : "";
     const props = {
-      class: `ms-cell ${cell.revealed ? "revealed" : ""} ${cell.flagged ? "flagged" : ""} ${cell.mine && cell.revealed ? "mine" : ""}`.trim(),
+      class: `ms-cell ${cell.revealed ? "revealed" : ""} ${cell.revealed && !cell.mine && cell.count === 0 ? "clear" : ""} ${cell.revealed && cell.count ? "num" : ""} ${cell.flagged ? "flagged" : ""} ${cell.mine && cell.revealed ? "mine" : ""}`.trim(),
       type: "button",
+      disabled: game.status === "lost",
       "aria-label": `Mine cell ${i + 1}`,
       style: cell.revealed && cell.count ? `--num-color:${MINES_NUM_COLORS[cell.count]}` : "",
       onClick: () => rerenderArcade(panel, (next) => {
@@ -770,98 +937,192 @@ function minesView(panel, state) {
     };
     return el("button", props, label);
   });
-  return el("div", { class: "arcade-game mines-game" }, [
+  const board = el("div", {
+    class: "ms-board",
+    style: `--ms-cols:${game.cols};--ms-rows:${game.rows};`,
+  }, cells);
+  const boardWrap = el("div", { class: "arcade-board-wrap arcade-board-wrap--mines" }, [board]);
+  if (game.status === "lost") {
+    const revealed = minesRevealedCount(game);
+    const total = minesSafeTotal(game);
+    boardWrap.append(arcadeGameOverCard({
+      tone: "lost",
+      title: "Boom!",
+      detail: `Revealed ${revealed} of ${total} safe cells`,
+      scoreLabel: "This run",
+      score: String(revealed),
+      bestLabel: "Best clears",
+      best: String(highscores.minesWins),
+      isNewRecord: false,
+      onRestart: restartMines,
+    }));
+  }
+  return el("div", { class: `arcade-game mines-game${game.status === "lost" ? " ended" : ""}`.trim() }, [
     el("div", { class: "arcade-controls" }, [
-      el("div", { class: "arcade-chip-row" }, diffButtons),
-      el("button", {
-        class: "arcade-play",
-        type: "button",
-        onClick: () => rerenderArcade(panel, (next) => { next.mines = createMinesGame(next.minesDifficulty); }),
-      }, "Play"),
+      el("div", { class: "arcade-controls-left" }, [
+        el("div", { class: "arcade-chip-row" }, diffButtons),
+        arcadeBestBadge("Best clears", highscores.minesWins ? String(highscores.minesWins) : null),
+      ]),
+      game.status === "lost"
+        ? el("button", { class: "arcade-restart arcade-restart-inline", type: "button", onClick: restartMines }, "Play again")
+        : el("button", {
+          class: "arcade-play",
+          type: "button",
+          onClick: restartMines,
+        }, "Play"),
     ]),
     el("div", { class: "arcade-subbar" }, [
       el("span", { class: `arcade-state ${game.status}`.trim() }, statusText),
       el("div", { class: "arcade-icon-row" }, [modeButton("dig", "⛏"), modeButton("flag", "⚑")]),
     ]),
-    el("div", {
-      class: "ms-board",
-      style: `--ms-cols:${game.cols};--ms-rows:${game.rows};`,
-    }, cells),
+    boardWrap,
   ]);
 }
 
+const MERGE_SLIDE_MS = 130;
+
 function createMergeGame() {
-  const game = { grid: Array(16).fill(0), score: 0, status: "running" };
-  addMergeTile(game);
-  addMergeTile(game);
+  const game = { tiles: [], score: 0, status: "running", nextId: 1 };
+  spawnMergeTile(game);
+  spawnMergeTile(game);
   return game;
 }
 
-function addMergeTile(game) {
-  const empty = game.grid.map((value, i) => value ? -1 : i).filter((i) => i >= 0);
-  if (!empty.length) return;
-  const slot = empty[Math.floor(Math.random() * empty.length)];
-  game.grid[slot] = Math.random() < 0.9 ? 2 : 4;
+function normalizeMergeGame(raw) {
+  if (!raw) return createMergeGame();
+  if (raw.tiles?.length) {
+    if (!raw.nextId) raw.nextId = Math.max(0, ...raw.tiles.map((t) => t.id || 0)) + 1;
+    return raw;
+  }
+  if (!raw.grid) return createMergeGame();
+  const game = { tiles: [], score: raw.score || 0, status: raw.status || "running", nextId: 1 };
+  raw.grid.forEach((value, i) => {
+    if (value) game.tiles.push({ id: game.nextId++, value, r: Math.floor(i / 4), c: i % 4 });
+  });
+  return game;
 }
 
-function mergeLine(values) {
-  const compact = values.filter(Boolean);
-  const out = [];
-  let score = 0;
-  for (let i = 0; i < compact.length; i++) {
-    if (compact[i] === compact[i + 1]) {
-      const merged = compact[i] * 2;
-      out.push(merged);
-      score += merged;
-      i++;
-    } else {
-      out.push(compact[i]);
+function spawnMergeTile(game) {
+  const occupied = new Set(game.tiles.map((t) => `${t.r},${t.c}`));
+  const empty = [];
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) {
+      if (!occupied.has(`${r},${c}`)) empty.push({ r, c });
     }
   }
-  while (out.length < 4) out.push(0);
-  return { line: out, score };
+  if (!empty.length) return null;
+  const spot = empty[Math.floor(Math.random() * empty.length)];
+  const tile = { id: game.nextId++, value: Math.random() < 0.9 ? 2 : 4, r: spot.r, c: spot.c };
+  game.tiles.push(tile);
+  return tile;
 }
 
-function mergeIndexes(direction) {
-  const rows = [];
-  for (let r = 0; r < 4; r++) rows.push([0, 1, 2, 3].map((c) => r * 4 + c));
-  const cols = [];
-  for (let c = 0; c < 4; c++) cols.push([0, 1, 2, 3].map((r) => r * 4 + c));
-  if (direction === "left") return rows;
-  if (direction === "right") return rows.map((row) => row.slice().reverse());
-  if (direction === "up") return cols;
-  return cols.map((col) => col.slice().reverse());
-}
-
-function hasMergeMoves(game) {
-  if (game.grid.some((value) => value === 0)) return true;
-  for (let i = 0; i < game.grid.length; i++) {
-    const row = Math.floor(i / 4);
-    const col = i % 4;
-    if (col < 3 && game.grid[i] === game.grid[i + 1]) return true;
-    if (row < 3 && game.grid[i] === game.grid[i + 4]) return true;
+function mergeLineTiles(tiles, slots) {
+  const out = [];
+  let gained = 0;
+  let moved = false;
+  for (const tile of tiles) {
+    const prev = out[out.length - 1];
+    if (prev && prev.value === tile.value && !prev.merged) {
+      prev.value *= 2;
+      prev.merged = true;
+      prev.mergePop = true;
+      gained += prev.value;
+      tile.dying = true;
+      tile.mergeTarget = prev;
+      moved = true;
+    } else {
+      out.push(tile);
+    }
   }
-  return false;
+  out.forEach((tile, i) => {
+    const slot = slots(i);
+    if (tile.r !== slot.r || tile.c !== slot.c) moved = true;
+    tile.toR = slot.r;
+    tile.toC = slot.c;
+  });
+  for (const tile of tiles) {
+    if (!tile.dying || !tile.mergeTarget) continue;
+    tile.toR = tile.mergeTarget.toR;
+    tile.toC = tile.mergeTarget.toC;
+    if (tile.r !== tile.toR || tile.c !== tile.toC) moved = true;
+  }
+  return { moved, gained };
 }
 
 function moveMerge(game, direction) {
-  if (game.status !== "running") return;
+  if (game.status !== "running") return false;
+  game.tiles.forEach((t) => {
+    delete t.born;
+    delete t.mergePop;
+    delete t.merged;
+    delete t.dying;
+    delete t.mergeTarget;
+    delete t.toR;
+    delete t.toC;
+  });
+  const config = {
+    left: { group: (t) => t.r, sort: (a, b) => a.c - b.c, slots: (i, key) => ({ r: key, c: i }) },
+    right: { group: (t) => t.r, sort: (a, b) => b.c - a.c, slots: (i, key) => ({ r: key, c: 3 - i }) },
+    up: { group: (t) => t.c, sort: (a, b) => a.r - b.r, slots: (i, key) => ({ r: i, c: key }) },
+    down: { group: (t) => t.c, sort: (a, b) => b.r - a.r, slots: (i, key) => ({ r: 3 - i, c: key }) },
+  };
+  const cfg = config[direction];
+  const groups = new Map();
+  for (const tile of game.tiles) {
+    const key = cfg.group(tile);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(tile);
+  }
   let moved = false;
   let gained = 0;
-  mergeIndexes(direction).forEach((indexes) => {
-    const before = indexes.map((i) => game.grid[i]);
-    const merged = mergeLine(before);
-    merged.line.forEach((value, n) => {
-      if (game.grid[indexes[n]] !== value) moved = true;
-      game.grid[indexes[n]] = value;
-    });
-    gained += merged.score;
-  });
-  if (!moved) return;
+  for (const [key, line] of groups) {
+    line.sort(cfg.sort);
+    const result = mergeLineTiles(line, (i) => cfg.slots(i, key));
+    if (result.moved) moved = true;
+    gained += result.gained;
+  }
+  if (!moved) return false;
   game.score += gained;
-  addMergeTile(game);
-  if (game.grid.some((value) => value >= 2048)) game.status = "won";
+  return true;
+}
+
+function finalizeMergeMove(game) {
+  game.tiles = game.tiles.filter((t) => !t.dying);
+  game.tiles.forEach((t) => {
+    t.r = t.toR ?? t.r;
+    t.c = t.toC ?? t.c;
+    delete t.toR;
+    delete t.toC;
+    delete t.merged;
+    delete t.dying;
+    delete t.mergeTarget;
+  });
+}
+
+function finishMergeTurn(game) {
+  const spawned = spawnMergeTile(game);
+  if (spawned) spawned.born = true;
+  if (game.tiles.some((t) => t.value >= 2048)) game.status = "won";
   else if (!hasMergeMoves(game)) game.status = "lost";
+  recordMergeEnd(game);
+}
+
+function hasMergeMoves(game) {
+  const grid = Array(16).fill(0);
+  game.tiles.forEach((t) => { grid[t.r * 4 + t.c] = t.value; });
+  if (grid.some((value) => value === 0)) return true;
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 3; c++) {
+      if (grid[r * 4 + c] === grid[r * 4 + c + 1]) return true;
+    }
+  }
+  for (let c = 0; c < 4; c++) {
+    for (let r = 0; r < 3; r++) {
+      if (grid[r * 4 + c] === grid[(r + 1) * 4 + c]) return true;
+    }
+  }
+  return false;
 }
 
 function tileClass(value) {
@@ -870,31 +1131,160 @@ function tileClass(value) {
   return `v${power}`;
 }
 
+function mergeStatusText(game) {
+  if (game.status === "won") return "2048";
+  if (game.status === "lost") return "Stuck";
+  return String(game.score);
+}
+
+function bindSwipe(node, onSwipe, { threshold = 28 } = {}) {
+  let start = null;
+  node.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("button, a, input, textarea, select, label, [role='button']")) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    start = { x: event.clientX, y: event.clientY, id: event.pointerId };
+    node.setPointerCapture?.(event.pointerId);
+  });
+  node.addEventListener("pointerup", (event) => {
+    if (!start || start.id !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    start = null;
+    if (node.hasPointerCapture?.(event.pointerId)) node.releasePointerCapture?.(event.pointerId);
+    if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return;
+    if (Math.abs(dx) > Math.abs(dy)) onSwipe(dx > 0 ? "right" : "left");
+    else onSwipe(dy > 0 ? "down" : "up");
+  });
+  node.addEventListener("pointercancel", () => { start = null; });
+}
+
 function mergeView(panel, state) {
-  const game = state.merge?.grid ? state.merge : createMergeGame();
+  const game = normalizeMergeGame(state.merge?.tiles || state.merge?.grid ? state.merge : null);
   state.merge = game;
-  const statusText = game.status === "won" ? "2048" : game.status === "lost" ? "Stuck" : String(game.score);
-  const move = (direction) => rerenderArcade(panel, (next) => moveMerge(next.merge, direction));
-  return el("div", { class: "arcade-game merge-game" }, [
+  const highscores = loadArcadeHighscores();
+  let animating = false;
+  const restartMerge = () => rerenderArcade(panel, (next) => { next.merge = createMergeGame(); });
+  const statusEl = el("span", { class: `arcade-state ${game.status}`.trim() }, mergeStatusText(game));
+  const board = el("div", { class: "merge-board" });
+  for (let i = 0; i < 16; i++) board.append(el("div", { class: "merge-cell" }));
+  const layer = el("div", { class: "merge-tiles-layer" });
+  board.append(layer);
+  const boardWrap = el("div", { class: "arcade-board-wrap" }, [board]);
+
+  const paintTiles = () => {
+    layer.replaceChildren(...game.tiles.map((tile) => el("div", {
+      class: `merge-tile ${tileClass(tile.value)}${tile.born ? " born" : ""}`.trim(),
+      style: `--mr:${tile.r};--mc:${tile.c}`,
+      "data-id": String(tile.id),
+    }, tile.value)));
+  };
+
+  const syncStatus = () => {
+    statusEl.textContent = mergeStatusText(game);
+    statusEl.className = `arcade-state ${game.status}`.trim();
+  };
+
+  const syncEndOverlay = () => {
+    boardWrap.querySelector(".arcade-result-overlay")?.remove();
+    if (game.status !== "lost") return;
+    recordMergeEnd(game);
+    const meta = game.scoreMeta || recordMergeHighscore(game.score);
+    boardWrap.append(arcadeGameOverCard({
+      tone: "lost",
+      title: "No moves left",
+      detail: "The board is full — try to beat your best score.",
+      scoreLabel: "Score",
+      score: String(game.score),
+      bestLabel: "Best",
+      best: String(meta.best),
+      isNewRecord: meta.isNew,
+      onRestart: restartMerge,
+    }));
+  };
+
+  const applyTilePositions = () => {
+    for (const tile of game.tiles) {
+      const node = layer.querySelector(`[data-id="${tile.id}"]`);
+      if (!node) continue;
+      node.style.setProperty("--mr", String(tile.toR ?? tile.r));
+      node.style.setProperty("--mc", String(tile.toC ?? tile.c));
+    }
+  };
+
+  const doMove = (direction) => {
+    if (animating || game.status !== "running") return;
+    if (!moveMerge(game, direction)) return;
+    animating = true;
+    saveArcadeState(state);
+    paintTiles();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        applyTilePositions();
+        window.setTimeout(() => {
+          const popIds = game.tiles.filter((t) => t.mergePop).map((t) => t.id);
+          game.tiles.filter((t) => t.dying).forEach((t) => {
+            const node = layer.querySelector(`[data-id="${t.id}"]`);
+            node?.classList.add("fade-out");
+          });
+          window.setTimeout(() => {
+            finalizeMergeMove(game);
+            finishMergeTurn(game);
+            saveArcadeState(state);
+            syncStatus();
+            paintTiles();
+            popIds.forEach((id) => layer.querySelector(`[data-id="${id}"]`)?.classList.add("merge-pop"));
+            syncEndOverlay();
+            root?.classList.toggle("ended", game.status === "lost");
+            animating = false;
+          }, 40);
+        }, MERGE_SLIDE_MS);
+      });
+    });
+  };
+
+  let root;
+  root = el("div", {
+    class: `arcade-game merge-game${game.status === "lost" ? " ended" : ""}`.trim(),
+    tabindex: "0",
+    "aria-label": "2048 game",
+    onPointerdown: () => root.focus({ preventScroll: true }),
+    onKeydown: (event) => {
+      const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+      const direction = map[event.key];
+      if (!direction) return;
+      event.preventDefault();
+      doMove(direction);
+    },
+  }, [
     el("div", { class: "arcade-controls" }, [
-      el("span", { class: `arcade-state ${game.status}`.trim() }, statusText),
-      el("button", {
-        class: "arcade-play",
-        type: "button",
-        onClick: () => rerenderArcade(panel, (next) => { next.merge = createMergeGame(); }),
-      }, "Play"),
+      el("div", { class: "arcade-controls-left" }, [
+        statusEl,
+        arcadeBestBadge("Best", highscores.merge ? String(highscores.merge) : null),
+      ]),
+      game.status === "lost"
+        ? el("button", { class: "arcade-restart arcade-restart-inline", type: "button", onClick: restartMerge }, "Play again")
+        : el("button", {
+          class: "arcade-play",
+          type: "button",
+          onClick: restartMerge,
+        }, "Play"),
     ]),
-    el("div", { class: "merge-board" },
-      game.grid.map((value) => el("div", { class: `merge-tile ${tileClass(value)}` }, value || ""))),
+    boardWrap,
     el("div", { class: "merge-controls", "aria-label": "2048 controls" }, [
       el("span"),
-      el("button", { class: "arcade-icon", type: "button", "aria-label": "Up", onClick: () => move("up") }, "↑"),
+      el("button", { class: "arcade-icon", type: "button", "aria-label": "Up", onClick: () => doMove("up") }, "↑"),
       el("span"),
-      el("button", { class: "arcade-icon", type: "button", "aria-label": "Left", onClick: () => move("left") }, "←"),
-      el("button", { class: "arcade-icon", type: "button", "aria-label": "Down", onClick: () => move("down") }, "↓"),
-      el("button", { class: "arcade-icon", type: "button", "aria-label": "Right", onClick: () => move("right") }, "→"),
+      el("button", { class: "arcade-icon", type: "button", "aria-label": "Left", onClick: () => doMove("left") }, "←"),
+      el("button", { class: "arcade-icon", type: "button", "aria-label": "Down", onClick: () => doMove("down") }, "↓"),
+      el("button", { class: "arcade-icon", type: "button", "aria-label": "Right", onClick: () => doMove("right") }, "→"),
     ]),
   ]);
+
+  paintTiles();
+  syncEndOverlay();
+  bindSwipe(boardWrap, doMove);
+  queueMicrotask(() => root.focus({ preventScroll: true }));
+  return root;
 }
 
 // Register the service worker (offline + installable). Safe no-op if unsupported.

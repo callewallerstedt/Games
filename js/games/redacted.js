@@ -181,9 +181,11 @@ function guessScreen({ guesserName, category, tokens, hidden, redactedCount, onG
 
 // Shared reveal. `p` carries the full round outcome.
 function revealScreen(names, colors, p, nextControl) {
-  const { entry, tokens, hidden, correct, points, guessText, guesserIndex, giverIndex, teamScore } = p;
+  const { entry, tokens, hidden, correct, points, guessText, guesserIndex, giverIndex, teamScore, manualAccept } = p;
   const verdict = el("div", { class: `red-verdict ${correct ? "ok" : "bad"}` },
-    correct ? `Correct! +${points}` : "Not this time — 0 points");
+    correct
+      ? `${manualAccept ? "Accepted" : "Correct"}! +${points}`
+      : "Not this time — 0 points");
 
   const guessLine = (guesserIndex == null || !guessText)
     ? el("p", { class: "muted center tiny" }, "No one landed a guess in time.")
@@ -209,6 +211,61 @@ function revealScreen(names, colors, p, nextControl) {
   ]);
 }
 
+function hostReviewPanel(names, colors, guesses, answer, allSubmitted, onAccept, onMiss) {
+  const rows = guesses.map((g) => el("div", { class: "red-host-guess-row" }, [
+    el("div", { class: "red-host-guess-meta" }, [
+      el("b", { style: `color:${colors[g.from]}` }, names[g.from]),
+      el("q", {}, g.text),
+    ]),
+    el("button", {
+      class: "btn red-host-accept",
+      type: "button",
+      onClick: () => onAccept(g.from, g.text),
+    }, "Accept ✓"),
+  ]));
+  return el("div", { class: "card red-host-panel" }, [
+    el("div", { class: "red-host-head" }, [
+      el("span", { class: "red-host-badge" }, "Host"),
+      el("strong", {}, allSubmitted ? "Round decision" : "Review guesses"),
+    ]),
+    el("p", { class: "red-host-hint muted tiny center" },
+      allSubmitted
+        ? `No exact match for “${answer}”. Accept a close answer or mark the round wrong.`
+        : "Accept a close answer even if it isn't an exact match."),
+    guesses.length
+      ? el("div", { class: "red-host-guesses" }, rows)
+      : el("p", { class: "muted tiny center" }, "Waiting for guesses…"),
+    allSubmitted && guesses.length
+      ? el("div", { class: "footer-actions" }, button("No points this round", { variant: "secondary", onClick: onMiss }))
+      : null,
+  ]);
+}
+
+function adjudicationScreen({ giverName, entry, attempts, names, colors, onAccept, onSkip }) {
+  return el("div", { class: "card red-host-panel" }, [
+    el("div", { class: "pill" }, `${giverName} — accept a close answer?`),
+    categoryTag(entry.category),
+    el("p", { class: "red-host-hint muted tiny center" },
+      `The answer is “${entry.answer}”. Tap Accept if a guess was close enough.`),
+    el("div", { class: "red-host-guesses" }, attempts.map((a) => el("div", { class: "red-host-guess-row" }, [
+      el("div", { class: "red-host-guess-meta" }, [
+        el("b", { style: `color:${colors[a.index]}` }, names[a.index]),
+        el("q", {}, a.text),
+      ]),
+      el("button", {
+        class: "btn red-host-accept",
+        type: "button",
+        onClick: () => onAccept(a.index),
+      }, "Accept ✓"),
+    ]))),
+    el("div", { class: "footer-actions" }, button("No — zero points", { variant: "secondary", onClick: onSkip })),
+  ]);
+}
+
+function wrapRound(body, extra) {
+  return extra ? el("div", { class: "red-round-stack" }, [body, extra]) : body;
+}
+
 /* ------------------------------ ONLINE (host) ----------------------------- */
 
 function online(ctx) {
@@ -232,6 +289,7 @@ function online(ctx) {
   let hidden = [];            // indices blacked out
   let resolved = false;
   const submitted = new Set();
+  let guessesLog = [];
   let stall = null;
   let disposed = false;
 
@@ -254,6 +312,7 @@ function online(ctx) {
     hidden = [];
     resolved = false;
     submitted.clear();
+    guessesLog = [];
     clearTimeout(stall);
 
     const tk = tokenize(entry.question);
@@ -287,21 +346,30 @@ function online(ctx) {
     stall = setTimeout(() => hostResolve(null, null), STALL_TIMEOUT_MS);
   }
 
-  // A guess arrives. First correct wins; otherwise wait for everyone.
   function hostHandleGuess(m) {
     if (!isHost || m.round !== round || resolved) return;
     if (m.from === giverIndex) return;
     submitted.add(m.from);
+    const guess = { from: m.from, text: m.guess };
+    const existing = guessesLog.findIndex((g) => g.from === m.from);
+    if (existing >= 0) guessesLog[existing] = guess;
+    else guessesLog.push(guess);
     if (isCorrect(m.guess, entry)) { hostResolve(m.from, m.guess, m.from); return; }
-    // Everyone (all non-givers) has now guessed wrong → resolve as a miss, but
-    // still show the last wrong guess on the reveal.
-    if (submitted.size >= n - 1) hostResolve(null, m.guess, m.from);
-    else broadcastState({ guessing: true }); // keep views fresh (progress)
+    renderForRound({ guessing: true, allSubmitted: submitted.size >= n - 1 });
+  }
+
+  function hostAcceptManual(from, text) {
+    hostResolve(from, text, from, { manual: true });
+  }
+
+  function hostForceMiss() {
+    const last = guessesLog[guessesLog.length - 1];
+    hostResolve(null, last?.text || "", last?.from ?? null);
   }
 
   // correctIndex scores the round (null = miss); shownIndex/guessText are just the
   // attempt to echo on the reveal card.
-  function hostResolve(correctIndex, guessText, shownIndex = correctIndex) {
+  function hostResolve(correctIndex, guessText, shownIndex = correctIndex, { manual = false } = {}) {
     if (!isHost || resolved) return;
     resolved = true;
     clearTimeout(stall);
@@ -315,7 +383,7 @@ function online(ctx) {
     recordStandings(names, contrib);
     const payload = {
       round, giverIndex, guesserIndex: guessText ? shownIndex : null, guessText: guessText || "",
-      correct, points, teamScore,
+      correct, points, teamScore, manualAccept: manual,
       question: entry.question, answer: entry.answer, alts: entry.alts || [],
       category: entry.category, hidden,
     };
@@ -327,7 +395,15 @@ function online(ctx) {
 
   function broadcastState() { /* state already pushed via explicit messages */ }
 
-  function renderForRound({ waitingForClue, guessing } = {}) {
+  function hostPanel(allSubmitted = false) {
+    return hostReviewPanel(
+      names, colors, guessesLog, entry.answer, allSubmitted,
+      (from, text) => hostAcceptManual(from, text),
+      () => hostForceMiss(),
+    );
+  }
+
+  function renderForRound({ waitingForClue, guessing, allSubmitted } = {}) {
     // Host's own perspective of the current phase.
     if (waitingForClue) {
       if (isGiver()) {
@@ -341,24 +417,26 @@ function online(ctx) {
       return;
     }
     if (guessing) {
+      let body;
       if (isGiver()) {
-        screen(el("div", { class: "card center" }, [
+        body = el("div", { class: "card center" }, [
           el("div", { class: "pill" }, "Clue sent 🖊️"),
           categoryTag(entry.category),
           wordRow(tokenize(entry.question), new Set(hidden), "reveal"),
           waitingCard("Waiting for a teammate to answer…"),
-        ]));
+        ]);
       } else if (submitted.has(session.myIndex)) {
-        screen(waitingCard("Locked in — waiting for the round to resolve…"));
+        body = waitingCard("Locked in — waiting for the round to resolve…");
       } else {
         const tk = tokenize(entry.question);
         const masked = tk.map((t, i) => (hidden.includes(i) ? "" : t));
-        screen(guessScreen({
+        body = guessScreen({
           guesserName: names[session.myIndex], category: entry.category,
           tokens: masked, hidden, redactedCount: hidden.length,
           onGuess: (text) => hostLocalGuess(text),
-        }));
+        });
       }
+      screen(wrapRound(body, isHost ? hostPanel(allSubmitted) : null));
     }
   }
 
@@ -380,7 +458,7 @@ function online(ctx) {
       entry: { category: p.category, question: p.question, answer: p.answer },
       tokens, hidden: p.hidden, correct: p.correct, points: p.points,
       guessText: p.guessText, guesserIndex: p.guesserIndex, giverIndex: p.giverIndex,
-      teamScore: p.teamScore,
+      teamScore: p.teamScore, manualAccept: p.manualAccept,
     }, onlineReadyGate(session, `redacted:${p.round}`, () => { if (isHost) hostStartRound(); }, { label: "Next round →" })));
   }
 
@@ -484,6 +562,8 @@ function local(ctx) {
     let shownIndex = null;     // whose guess to echo on the reveal
     let guessText = "";
     let correct = false;
+    let manualAccept = false;
+    const attempts = [];
     const masked = tokens.map((t, i) => (hidden.includes(i) ? "" : t));
     for (let i = 0; i < n && !correct; i++) {
       if (i === giverIndex) continue;
@@ -495,8 +575,27 @@ function local(ctx) {
           onGuess: (t) => res(t),
         }));
       });
-      shownIndex = i; guessText = text; // always remember the latest attempt
+      shownIndex = i; guessText = text;
+      attempts.push({ index: i, text });
       if (isCorrect(text, entry)) { correct = true; correctIndex = i; }
+    }
+
+    if (!correct && attempts.length) {
+      await passDevice(names[giverIndex], "Accept a close answer?");
+      const accepted = await new Promise((res) => {
+        screen(adjudicationScreen({
+          giverName: names[giverIndex], entry, attempts, names, colors,
+          onAccept: (index) => res(index),
+          onSkip: () => res(null),
+        }));
+      });
+      if (accepted != null) {
+        correct = true;
+        correctIndex = accepted;
+        manualAccept = true;
+        const pick = attempts.find((a) => a.index === accepted);
+        if (pick) { shownIndex = pick.index; guessText = pick.text; }
+      }
     }
 
     const points = correct ? hidden.length : 0;
@@ -509,7 +608,7 @@ function local(ctx) {
     if (correct) celebrate(); else haptic(20);
 
     screen(revealScreen(names, colors, {
-      entry, tokens, hidden, correct, points, guessText, guesserIndex: shownIndex, giverIndex, teamScore,
+      entry, tokens, hidden, correct, points, guessText, guesserIndex: shownIndex, giverIndex, teamScore, manualAccept,
     }, localReadyGate(names, playRound, { label: "Next round →" })));
   }
 

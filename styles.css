@@ -856,6 +856,8 @@ p { margin: 0 0 .8em; }
   box-shadow: 0 10px 28px rgba(0,0,0,.2);
   font: inherit;
   font-size: 1.45rem;
+  line-height: 1;
+  padding: 0;
   cursor: grab;
   backdrop-filter: blur(12px);
 }
@@ -894,6 +896,8 @@ p { margin: 0 0 .8em; }
   background: var(--surface);
   font: inherit;
   font-size: 1.25rem;
+  line-height: 1;
+  padding: 0;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
 }
@@ -1012,6 +1016,125 @@ p { margin: 0 0 .8em; }
 }
 .arcade-state.won { color: var(--good); }
 .arcade-state.lost { color: var(--bad); }
+.arcade-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.arcade-best {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: .72rem;
+  font-weight: 800;
+  color: var(--text-soft);
+}
+.arcade-best-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.arcade-board-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 246px;
+  margin: 0 auto;
+}
+.merge-game .arcade-board-wrap { touch-action: none; }
+.arcade-board-wrap--mines { max-width: 318px; }
+.arcade-result-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg) 48%, transparent);
+  backdrop-filter: blur(6px);
+  animation: fade .18s ease;
+}
+.arcade-result-card {
+  width: min(100%, 228px);
+  padding: 14px 14px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 10px;
+  text-align: center;
+}
+.arcade-result-title {
+  font-weight: 900;
+  font-size: 1.08rem;
+  line-height: 1.15;
+}
+.arcade-result-title.lost { color: var(--bad); }
+.arcade-result-sub {
+  color: var(--text-soft);
+  font-size: .76rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.arcade-result-scores {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.arcade-result-stat {
+  padding: 8px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 2px;
+}
+.arcade-result-label {
+  font-size: .64rem;
+  font-weight: 800;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.arcade-result-value {
+  font-size: 1.28rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.arcade-result-record {
+  font-size: .78rem;
+  font-weight: 850;
+  color: var(--good);
+}
+.arcade-restart {
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  min-height: 42px;
+  width: 100%;
+  background: var(--brand);
+  color: var(--brand-ink);
+  font: inherit;
+  font-weight: 900;
+  font-size: .88rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.arcade-restart:active { transform: scale(.97); }
+.arcade-restart-inline {
+  width: auto;
+  min-width: 96px;
+  padding: 0 14px;
+}
+.arcade-game.ended .merge-controls,
+.arcade-game.ended .arcade-subbar { opacity: .45; pointer-events: none; }
 .ms-board {
   width: 100%;
   max-width: 318px;
@@ -1039,16 +1162,25 @@ p { margin: 0 0 .8em; }
   min-height: 0;
 }
 .ms-cell.revealed {
-  background: var(--surface);
-  color: var(--num-color, var(--text-soft));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 65%, transparent);
+  border-color: color-mix(in srgb, var(--line) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 45%, transparent);
 }
-.ms-cell.flagged { color: var(--bad); }
-.ms-cell.mine { background: color-mix(in srgb, var(--bad) 15%, var(--surface)); }
+.ms-cell.revealed.clear {
+  background: color-mix(in srgb, var(--good) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--good) 35%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--good) 30%, transparent);
+}
+.ms-cell.revealed.num {
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface));
+  color: var(--num-color, var(--text-soft));
+}
+.ms-cell.flagged { color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--surface-2)); }
+.ms-cell.mine { background: color-mix(in srgb, var(--bad) 22%, var(--surface)); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 .merge-board {
+  position: relative;
   width: 100%;
-  max-width: 246px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   padding: 8px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1056,18 +1188,51 @@ p { margin: 0 0 .8em; }
   border-radius: var(--radius);
   background: var(--surface-2);
   border: 1px solid var(--line);
+  aspect-ratio: 1;
+}
+.merge-cell {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--line) 55%, var(--surface));
+}
+.merge-tiles-layer {
+  position: absolute;
+  inset: 8px;
+  pointer-events: none;
 }
 .merge-tile {
-  aspect-ratio: 1;
+  position: absolute;
+  --cell: calc((100% - 21px) / 4);
+  --step: calc(var(--cell) + 7px);
+  left: calc(var(--mc) * var(--step));
+  top: calc(var(--mr) * var(--step));
+  width: var(--cell);
+  height: var(--cell);
   border-radius: 6px;
   display: grid;
   place-items: center;
   background: color-mix(in srgb, var(--line) 70%, var(--surface));
   color: var(--text);
   font-weight: 900;
-  font-size: 1rem;
+  font-size: clamp(.72rem, 4.2vw, 1rem);
   font-variant-numeric: tabular-nums;
+  transition: left .13s ease-in-out, top .13s ease-in-out, opacity .08s ease;
+  will-change: left, top, transform;
 }
+.merge-tile.fade-out { opacity: 0; transform: scale(.82); transition: opacity .08s ease, transform .08s ease; }
+.merge-tile.born { animation: merge-born .16s ease-out; }
+.merge-tile.merge-pop { animation: merge-pop .16s ease-out; }
+@keyframes merge-born {
+  0% { transform: scale(.35); opacity: .35; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes merge-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+.merge-game:focus { outline: none; }
+.merge-game:focus-visible { outline: 2px solid color-mix(in srgb, var(--brand) 55%, transparent); outline-offset: 3px; border-radius: var(--radius-sm); }
 .merge-tile.v1,
 .merge-tile.v2 { background: #dfeee8; color: #176b5b; }
 .merge-tile.v3 { background: #dbeafe; color: #1d4f91; }
@@ -1085,6 +1250,173 @@ p { margin: 0 0 .8em; }
   gap: 7px;
   justify-content: center;
 }
+
+/* ---------- Tetris arcade ---------- */
+.arcade-state.warn { color: var(--warn); }
+.arcade-play.on {
+  background: color-mix(in srgb, var(--warn) 88%, var(--surface));
+  border-color: color-mix(in srgb, var(--warn) 88%, var(--surface));
+  color: var(--text);
+}
+.arcade-board-wrap--tetris { max-width: 210px; }
+.tetris-game .arcade-board-wrap { touch-action: none; }
+.tetris-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  justify-content: center;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+}
+.tetris-board {
+  display: grid;
+  grid-template-columns: repeat(var(--tet-cols), 1fr);
+  grid-template-rows: repeat(var(--tet-rows), 1fr);
+  gap: 2px;
+  padding: 6px;
+  aspect-ratio: calc(var(--tet-cols) / var(--tet-rows));
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 70%, #0b1016), #0b1016);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 35%, transparent);
+}
+.tetris-cell {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--line) 28%, transparent);
+}
+.tetris-cell.filled {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tet-color) 82%, #fff 18%), var(--tet-color));
+  box-shadow: inset 0 2px 0 color-mix(in srgb, #fff 22%, transparent), 0 1px 2px rgba(0,0,0,.22);
+}
+.tetris-cell.filled.ghost {
+  background: color-mix(in srgb, var(--tet-color) 18%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--tet-color) 62%, transparent);
+  box-shadow: none;
+}
+.tetris-side {
+  display: grid;
+  gap: 8px;
+  min-width: 74px;
+}
+.tetris-stat-block {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.tetris-stat-label {
+  font-size: .64rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+.tetris-stat-value {
+  font-size: 1rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.tetris-next-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 12px);
+  grid-template-rows: repeat(4, 12px);
+  gap: 2px;
+}
+.tetris-mini-cell {
+  border-radius: 2px;
+  background: transparent;
+}
+.tetris-mini-cell.filled {
+  background: var(--tet-color);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 20%, transparent);
+}
+.tetris-pause-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg) 52%, transparent);
+  backdrop-filter: blur(5px);
+  pointer-events: auto;
+}
+.tetris-pause-card .arcade-restart { pointer-events: auto; }
+.tetris-pause-card {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+.tetris-pause-title {
+  font-weight: 900;
+  font-size: .92rem;
+}
+.tetris-pause-sub {
+  color: var(--text-soft);
+  font-size: .72rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.tetris-controls {
+  display: grid;
+  grid-template-columns: 42px 1fr 42px;
+  gap: 8px;
+  align-items: center;
+  max-width: 320px;
+  margin: 0 auto;
+  width: 100%;
+}
+.tetris-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 42px);
+  gap: 6px;
+  justify-content: center;
+}
+.tetris-dpad-stack {
+  display: grid;
+  gap: 6px;
+}
+.tetris-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-height: 42px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 900;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.tetris-btn-small { min-height: 36px; font-size: .9rem; border-radius: 8px; }
+.tetris-btn-rotate,
+.tetris-btn-drop {
+  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0;
+}
+.tetris-btn-drop {
+  background: color-mix(in srgb, var(--brand) 18%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
+}
+.tetris-btn:active { transform: scale(.94); }
+.tetris-game.ended .tetris-controls { opacity: .45; pointer-events: none; }
+.tetris-game:focus { outline: none; }
+.tetris-game:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand) 55%, transparent);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
 @media (max-width: 390px) {
   .arcade-head,
   .arcade-controls { align-items: stretch; flex-direction: column; }
@@ -1094,10 +1426,20 @@ p { margin: 0 0 .8em; }
   .arcade-chip,
   .arcade-play { flex: 1; }
   .reaction-palette { grid-template-columns: repeat(2, 44px); }
+  .tetris-layout { grid-template-columns: 1fr; max-width: 240px; }
+  .tetris-side {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .arcade-board-wrap--tetris { max-width: min(100%, 210px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .reaction-float { animation-duration: .01ms; }
   .reaction-palette { transition: none; }
+  .merge-tile { transition: none; }
+  .merge-tile.born,
+  .merge-tile.merge-pop { animation: none; }
 }
 
 /* ---------- Unified lobby ---------- */
@@ -1605,3 +1947,41 @@ p { margin: 0 0 .8em; }
   background: var(--surface-2); font-weight: 700;
 }
 .red-team strong { font-size: 1.6rem; font-variant-numeric: tabular-nums; color: var(--accent); }
+
+.red-round-stack { display: grid; gap: 12px; }
+.red-host-panel {
+  display: flex; flex-direction: column; gap: 10px;
+  border-color: color-mix(in srgb, var(--good) 28%, var(--line));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--good) 6%, var(--surface)), var(--surface));
+}
+.red-host-head {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.red-host-badge {
+  padding: 3px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--good) 16%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line));
+  color: var(--good); font-size: .68rem; font-weight: 900; letter-spacing: .05em; text-transform: uppercase;
+}
+.red-host-hint { margin: 0; }
+.red-host-guesses { display: grid; gap: 8px; }
+.red-host-guess-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); background: var(--surface-2);
+}
+.red-host-guess-meta { display: grid; gap: 2px; min-width: 0; }
+.red-host-guess-meta q {
+  font-weight: 700; font-style: normal; word-break: break-word;
+}
+.red-host-accept {
+  flex: none;
+  background: var(--good) !important;
+  border-color: var(--good) !important;
+  color: #fff !important;
+  min-height: 40px;
+  padding: 0 14px;
+  font-weight: 900;
+  box-shadow: var(--shadow-sm);
+}
+.red-host-accept:active { transform: scale(.97); }
