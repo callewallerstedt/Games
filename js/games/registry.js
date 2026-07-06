@@ -25,8 +25,9 @@ import categories from "./categories.js";
 import newphone from "./newphone.js";
 import millionaire from "./millionaire.js";
 import jeopardy from "./jeopardy.js";
+import redacted from "./redacted.js";
 
-export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, wavelength, bombparty, categories, newphone, millionaire, jeopardy, battleship, dice, tapple, guess, truefalse, triangles, crime, neoncode, flashduel, wordduel];
+export const GAMES = [wyr, howwell, twotruths, deepdive, impostor, herd, hues, wavelength, bombparty, categories, newphone, millionaire, jeopardy, redacted, battleship, dice, tapple, guess, truefalse, triangles, crime, neoncode, flashduel, wordduel];
 
 export function getGame(id) {
   return GAMES.find((g) => g.id === id) || null;
