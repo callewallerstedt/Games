@@ -1,5 +1,5 @@
 // Router + home hub. Lobby & player setup in separate modules.
-import { el, render, topbar, registerSW, iosInstallTip, applyTheme, themePicker, disposeActiveGame } from "./ui.js";
+import { el, render, topbar, registerSW, iosInstallTip, applyTheme, themePicker, disposeActiveGame, bindReactionSession } from "./ui.js";
 import { GAMES, getGame } from "./games/registry.js";
 import { openScanner } from "./scan.js";
 import { qrScanIcon } from "./qr.js";
@@ -11,6 +11,7 @@ const home = () => go("#/");
 
 function cleanup() {
   disposeActiveGame();
+  bindReactionSession(null);
   cleanupLobby();
   document.body.classList.remove("hub-menu");
   document.querySelectorAll(".pass, .modal-bg, .toast").forEach((n) => n.remove());

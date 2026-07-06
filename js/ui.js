@@ -52,6 +52,8 @@ export function playerColor(name, fallback = PLAYER_COLORS[0]) {
 export function render(content) {
   const app = clear($app());
   for (const c of [].concat(content)) if (c) app.append(c);
+  decorateWaitingScreens(app);
+  ensureReactionDock();
   window.scrollTo(0, 0);
 }
 
@@ -346,6 +348,553 @@ export function localReadyGate(names, onAllReady, opts = {}) {
   const label = !opts.label || opts.label.toLowerCase() === "ready" ? "Continue" : opts.label;
   return el("div", { class: "ready-gate local-ready-gate" },
     button(label, { big: true, onClick: onAllReady }));
+}
+
+// ---------- Global reactions ----------
+const REACTION_EMOJIS = ["💀", "😭", "?", "!", "😡", "😂", "🔥", "💖"];
+const REACTION_POS_KEY = "party_reaction_dock_pos_v1";
+let reactionDock = null;
+let reactionLayer = null;
+let reactionSession = null;
+let reactionOff = null;
+const reactionSeen = new Set();
+
+function reactionId() {
+  try { return crypto.randomUUID(); } catch { return `r${Date.now()}${Math.random().toString(36).slice(2)}`; }
+}
+
+function rememberReaction(id) {
+  if (!id) return false;
+  if (reactionSeen.has(id)) return true;
+  reactionSeen.add(id);
+  if (reactionSeen.size > 100) reactionSeen.delete(reactionSeen.values().next().value);
+  return false;
+}
+
+function seededRandom(seed) {
+  let x = 0;
+  String(seed || Math.random()).split("").forEach((ch) => { x = Math.imul(31, x) + ch.charCodeAt(0) | 0; });
+  return () => {
+    x = Math.imul(1664525, x) + 1013904223 | 0;
+    return ((x >>> 0) / 4294967296);
+  };
+}
+
+function clampDockPosition(left, top) {
+  const margin = 10;
+  const size = 58;
+  return {
+    left: Math.max(margin, Math.min(window.innerWidth - size - margin, left)),
+    top: Math.max(margin + (window.visualViewport?.offsetTop || 0), Math.min(window.innerHeight - size - margin, top)),
+  };
+}
+
+function loadDockPosition() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(REACTION_POS_KEY) || "null");
+    if (Number.isFinite(saved?.left) && Number.isFinite(saved?.top)) return clampDockPosition(saved.left, saved.top);
+  } catch {}
+  return clampDockPosition(16, window.innerHeight - 118);
+}
+
+function saveDockPosition(left, top) {
+  try { localStorage.setItem(REACTION_POS_KEY, JSON.stringify(clampDockPosition(left, top))); } catch {}
+}
+
+function placeReactionDock(left, top) {
+  if (!reactionDock) return;
+  const pos = clampDockPosition(left, top);
+  reactionDock.style.left = `${pos.left}px`;
+  reactionDock.style.top = `${pos.top}px`;
+  reactionDock.style.right = "auto";
+  reactionDock.style.bottom = "auto";
+}
+
+function reactionFloatLayer() {
+  if (reactionLayer?.isConnected) return reactionLayer;
+  reactionLayer = el("div", { class: "reaction-float-layer", "aria-hidden": "true" });
+  document.body.append(reactionLayer);
+  return reactionLayer;
+}
+
+function spawnReaction(emoji, seed = Math.random()) {
+  const rnd = seededRandom(seed);
+  const node = el("div", { class: "reaction-float" }, emoji);
+  const x = 10 + rnd() * 80;
+  const dx = Math.round((rnd() - 0.5) * 96);
+  const rot = Math.round((rnd() - 0.5) * 36);
+  const scale = (0.9 + rnd() * 0.45).toFixed(2);
+  const dur = Math.round(1350 + rnd() * 520);
+  node.style.cssText = `--rx:${x}vw;--rdx:${dx}px;--rrot:${rot}deg;--rscale:${scale};--rdur:${dur}ms;`;
+  reactionFloatLayer().append(node);
+  setTimeout(() => node.remove(), dur + 120);
+}
+
+function sendReaction(emoji) {
+  const id = reactionId();
+  const seed = `${id}:${Date.now()}`;
+  rememberReaction(id);
+  spawnReaction(emoji, seed);
+  haptic(10);
+  if (reactionSession?.mode === "online") {
+    reactionSession.sendPrivate("app_reaction", { id, emoji, seed, at: Date.now() });
+  }
+}
+
+function setReactionPalette(open) {
+  if (!reactionDock) return;
+  reactionDock.classList.toggle("open", !!open);
+  const btn = reactionDock.querySelector(".reaction-main");
+  if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function ensureReactionDock() {
+  if (reactionDock?.isConnected) return reactionDock;
+  let drag = null;
+  let suppressClick = false;
+  const main = el("button", {
+    class: "reaction-main",
+    type: "button",
+    "aria-label": "Reactions",
+    "aria-expanded": "false",
+    title: "Reactions",
+    onClick: () => {
+      if (suppressClick) return;
+      setReactionPalette(!reactionDock.classList.contains("open"));
+    },
+    onKeydown: (event) => {
+      if (event.key !== "Escape") return;
+      setReactionPalette(false);
+      event.stopPropagation();
+    },
+  }, "☺");
+  const choices = el("div", { class: "reaction-palette", role: "menu" },
+    REACTION_EMOJIS.map((emoji) => el("button", {
+      class: "reaction-choice",
+      type: "button",
+      role: "menuitem",
+      "aria-label": `Send ${emoji}`,
+      title: emoji,
+      onClick: (event) => {
+        event.stopPropagation();
+        sendReaction(emoji);
+        setReactionPalette(false);
+      },
+    }, emoji)));
+  reactionDock = el("div", { class: "reaction-dock" }, [choices, main]);
+  reactionDock.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".reaction-choice")) return;
+    const rect = reactionDock.getBoundingClientRect();
+    drag = {
+      id: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      left: rect.left,
+      top: rect.top,
+      moved: false,
+      mainTap: !!event.target.closest(".reaction-main"),
+    };
+    reactionDock.setPointerCapture?.(event.pointerId);
+  });
+  reactionDock.addEventListener("pointermove", (event) => {
+    if (!drag || drag.id !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (Math.abs(dx) + Math.abs(dy) > 5) drag.moved = true;
+    if (!drag.moved) return;
+    placeReactionDock(drag.left + dx, drag.top + dy);
+  });
+  reactionDock.addEventListener("pointerup", (event) => {
+    if (!drag || drag.id !== event.pointerId) return;
+    const tappedMain = !drag.moved && drag.mainTap;
+    if (drag.moved) {
+      const rect = reactionDock.getBoundingClientRect();
+      saveDockPosition(rect.left, rect.top);
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 0);
+    } else if (tappedMain) {
+      setReactionPalette(!reactionDock.classList.contains("open"));
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 0);
+    }
+    drag = null;
+  });
+  document.body.append(reactionDock);
+  const pos = loadDockPosition();
+  placeReactionDock(pos.left, pos.top);
+  window.addEventListener("resize", () => {
+    if (!reactionDock?.isConnected) return;
+    const rect = reactionDock.getBoundingClientRect();
+    placeReactionDock(rect.left, rect.top);
+  });
+  return reactionDock;
+}
+
+export function bindReactionSession(session) {
+  ensureReactionDock();
+  if (reactionOff) {
+    try { reactionOff(); } catch {}
+    reactionOff = null;
+  }
+  reactionSession = session?.mode === "online" ? session : null;
+  if (!reactionSession) return;
+  reactionOff = reactionSession.on("app_reaction", (message) => {
+    if (!message?.emoji || !REACTION_EMOJIS.includes(message.emoji)) return;
+    if (rememberReaction(message.id)) return;
+    spawnReaction(message.emoji, message.seed || message.id);
+    if (reactionSession?.isHost && message.from !== reactionSession.myIndex) {
+      reactionSession.sendPrivate("app_reaction", {
+        id: message.id,
+        emoji: message.emoji,
+        seed: message.seed || message.id,
+        at: message.at || Date.now(),
+        origin: message.origin ?? message.from,
+      });
+    }
+  });
+  if (!reactionSession.__reactionDestroyWrapped) {
+    const originalDestroy = reactionSession.destroy?.bind(reactionSession);
+    reactionSession.destroy = () => {
+      if (reactionSession === session) bindReactionSession(null);
+      originalDestroy?.();
+    };
+    reactionSession.__reactionDestroyWrapped = true;
+  }
+}
+
+// ---------- Waiting arcade ----------
+const WAITING_ARCADE_KEY = "party_waiting_arcade_v1";
+const MINES_CONFIGS = {
+  easy: { id: "easy", label: "Easy", rows: 6, cols: 6, mines: 6 },
+  medium: { id: "medium", label: "Medium", rows: 8, cols: 8, mines: 10 },
+  hard: { id: "hard", label: "Hard", rows: 10, cols: 10, mines: 16 },
+};
+const MINES_NUM_COLORS = ["", "#2563a6", "#178765", "#c2410c", "#7c3aed", "#be123c", "#0f766e", "#334155", "#111827"];
+
+function arcadeDefaults() {
+  return { tab: "mines", minesDifficulty: "easy", minesMode: "dig", mines: null, merge: null };
+}
+
+function loadArcadeState() {
+  try {
+    const state = { ...arcadeDefaults(), ...JSON.parse(localStorage.getItem(WAITING_ARCADE_KEY) || "{}") };
+    if (!["mines", "merge"].includes(state.tab)) state.tab = "mines";
+    if (!MINES_CONFIGS[state.minesDifficulty]) state.minesDifficulty = "easy";
+    if (!["dig", "flag"].includes(state.minesMode)) state.minesMode = "dig";
+    return state;
+  } catch {
+    return arcadeDefaults();
+  }
+}
+
+function saveArcadeState(state) {
+  try { localStorage.setItem(WAITING_ARCADE_KEY, JSON.stringify(state)); } catch {}
+}
+
+function decorateWaitingScreens(root) {
+  if (!root || root.querySelector(".waiting-arcade")) return;
+  if (!isWaitingRender(root)) return;
+  const target = root.querySelector(".screen") || root;
+  const arcade = waitingArcadePanel();
+  const footer = target.querySelector(":scope > .footer-actions");
+  if (footer) target.insertBefore(arcade, footer);
+  else target.append(arcade);
+}
+
+function isWaitingRender(root) {
+  const waitingNodes = Array.from(root.querySelectorAll(".waiting, .compact-wait"))
+    .filter((node) => !node.closest(".waiting-arcade"));
+  if (waitingNodes.length) return true;
+  const hasSpinner = Array.from(root.querySelectorAll(".spinner"))
+    .some((node) => !node.closest(".waiting-arcade"));
+  if (!hasSpinner) return false;
+  return /\b(waiting|locked|joining|opening|reconnecting|returning|checking|watching)\b/i.test(root.textContent || "");
+}
+
+function waitingArcadePanel() {
+  const state = loadArcadeState();
+  if (!state.mines) state.mines = createMinesGame(state.minesDifficulty);
+  if (!state.merge) state.merge = createMergeGame();
+  saveArcadeState(state);
+  const panel = el("section", {
+    class: "waiting-arcade",
+    "aria-label": "Waiting arcade",
+    onPointerdown: (event) => event.stopPropagation(),
+    onClick: (event) => event.stopPropagation(),
+  });
+  renderArcade(panel, state);
+  return panel;
+}
+
+function rerenderArcade(panel, mutator) {
+  const state = loadArcadeState();
+  if (!state.mines) state.mines = createMinesGame(state.minesDifficulty);
+  if (!state.merge) state.merge = createMergeGame();
+  mutator?.(state);
+  saveArcadeState(state);
+  renderArcade(panel, state);
+}
+
+function renderArcade(panel, state) {
+  const tab = (value, label) => el("button", {
+    class: `arcade-tab ${state.tab === value ? "on" : ""}`.trim(),
+    type: "button",
+    onClick: () => rerenderArcade(panel, (next) => { next.tab = value; }),
+  }, label);
+  panel.replaceChildren(
+    el("div", { class: "arcade-head" }, [
+      el("div", { class: "arcade-title" }, "Waiting arcade"),
+      el("div", { class: "arcade-tabs" }, [tab("mines", "Mines"), tab("merge", "2048")]),
+    ]),
+    state.tab === "mines" ? minesView(panel, state) : mergeView(panel, state),
+  );
+}
+
+function minesConfig(id) {
+  return MINES_CONFIGS[id] || MINES_CONFIGS.easy;
+}
+
+function createMinesGame(difficulty = "easy") {
+  const cfg = minesConfig(difficulty);
+  return {
+    difficulty: cfg.id,
+    rows: cfg.rows,
+    cols: cfg.cols,
+    mineCount: cfg.mines,
+    firstMove: true,
+    status: "running",
+    cells: Array.from({ length: cfg.rows * cfg.cols }, () => ({ mine: false, count: 0, revealed: false, flagged: false })),
+  };
+}
+
+function minesNeighbors(game, index) {
+  const row = Math.floor(index / game.cols);
+  const col = index % game.cols;
+  const out = [];
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const rr = row + dr;
+      const cc = col + dc;
+      if (rr >= 0 && cc >= 0 && rr < game.rows && cc < game.cols) out.push(rr * game.cols + cc);
+    }
+  }
+  return out;
+}
+
+function seedMines(game, safeIndex) {
+  const blocked = new Set([safeIndex, ...minesNeighbors(game, safeIndex)]);
+  let candidates = game.cells.map((_, i) => i).filter((i) => !blocked.has(i));
+  if (candidates.length < game.mineCount) candidates = game.cells.map((_, i) => i).filter((i) => i !== safeIndex);
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+  candidates.slice(0, game.mineCount).forEach((i) => { game.cells[i].mine = true; });
+  game.cells.forEach((cell, i) => {
+    cell.count = cell.mine ? 0 : minesNeighbors(game, i).filter((n) => game.cells[n].mine).length;
+  });
+  game.firstMove = false;
+}
+
+function revealMineCell(game, index) {
+  if (game.status !== "running") return;
+  const cell = game.cells[index];
+  if (!cell || cell.flagged || cell.revealed) return;
+  if (game.firstMove) seedMines(game, index);
+  if (cell.mine) {
+    cell.revealed = true;
+    game.cells.forEach((c) => { if (c.mine) c.revealed = true; });
+    game.status = "lost";
+    return;
+  }
+  const queue = [index];
+  const seen = new Set();
+  while (queue.length) {
+    const i = queue.shift();
+    if (seen.has(i)) continue;
+    seen.add(i);
+    const current = game.cells[i];
+    if (!current || current.flagged || current.revealed) continue;
+    current.revealed = true;
+    if (current.count === 0) minesNeighbors(game, i).forEach((n) => queue.push(n));
+  }
+  if (game.cells.every((c) => c.mine || c.revealed)) {
+    game.status = "won";
+    game.cells.forEach((c) => { if (c.mine) c.flagged = true; });
+  }
+}
+
+function toggleMineFlag(game, index) {
+  if (game.status !== "running") return;
+  const cell = game.cells[index];
+  if (!cell || cell.revealed) return;
+  cell.flagged = !cell.flagged;
+}
+
+function minesView(panel, state) {
+  const game = state.mines && state.mines.cells ? state.mines : createMinesGame(state.minesDifficulty);
+  state.mines = game;
+  const flagged = game.cells.filter((cell) => cell.flagged).length;
+  const statusText = game.status === "won" ? "Cleared" : game.status === "lost" ? "Boom" : `${Math.max(0, game.mineCount - flagged)} left`;
+  const diffButtons = Object.values(MINES_CONFIGS).map((cfg) => el("button", {
+    class: `arcade-chip ${state.minesDifficulty === cfg.id ? "on" : ""}`.trim(),
+    type: "button",
+    onClick: () => rerenderArcade(panel, (next) => { next.minesDifficulty = cfg.id; }),
+  }, cfg.label));
+  const modeButton = (mode, label) => el("button", {
+    class: `arcade-icon ${state.minesMode === mode ? "on" : ""}`.trim(),
+    type: "button",
+    title: mode === "dig" ? "Dig" : "Flag",
+    "aria-label": mode === "dig" ? "Dig" : "Flag",
+    onClick: () => rerenderArcade(panel, (next) => { next.minesMode = mode; }),
+  }, label);
+  const cells = game.cells.map((cell, i) => {
+    const label = cell.revealed
+      ? cell.mine ? "💣" : cell.count ? String(cell.count) : ""
+      : cell.flagged ? "⚑" : "";
+    const props = {
+      class: `ms-cell ${cell.revealed ? "revealed" : ""} ${cell.flagged ? "flagged" : ""} ${cell.mine && cell.revealed ? "mine" : ""}`.trim(),
+      type: "button",
+      "aria-label": `Mine cell ${i + 1}`,
+      style: cell.revealed && cell.count ? `--num-color:${MINES_NUM_COLORS[cell.count]}` : "",
+      onClick: () => rerenderArcade(panel, (next) => {
+        const target = next.mines;
+        if (next.minesMode === "flag") toggleMineFlag(target, i);
+        else revealMineCell(target, i);
+      }),
+      onContextmenu: (event) => {
+        event.preventDefault();
+        rerenderArcade(panel, (next) => toggleMineFlag(next.mines, i));
+      },
+    };
+    return el("button", props, label);
+  });
+  return el("div", { class: "arcade-game mines-game" }, [
+    el("div", { class: "arcade-controls" }, [
+      el("div", { class: "arcade-chip-row" }, diffButtons),
+      el("button", {
+        class: "arcade-play",
+        type: "button",
+        onClick: () => rerenderArcade(panel, (next) => { next.mines = createMinesGame(next.minesDifficulty); }),
+      }, "Play"),
+    ]),
+    el("div", { class: "arcade-subbar" }, [
+      el("span", { class: `arcade-state ${game.status}`.trim() }, statusText),
+      el("div", { class: "arcade-icon-row" }, [modeButton("dig", "⛏"), modeButton("flag", "⚑")]),
+    ]),
+    el("div", {
+      class: "ms-board",
+      style: `--ms-cols:${game.cols};--ms-rows:${game.rows};`,
+    }, cells),
+  ]);
+}
+
+function createMergeGame() {
+  const game = { grid: Array(16).fill(0), score: 0, status: "running" };
+  addMergeTile(game);
+  addMergeTile(game);
+  return game;
+}
+
+function addMergeTile(game) {
+  const empty = game.grid.map((value, i) => value ? -1 : i).filter((i) => i >= 0);
+  if (!empty.length) return;
+  const slot = empty[Math.floor(Math.random() * empty.length)];
+  game.grid[slot] = Math.random() < 0.9 ? 2 : 4;
+}
+
+function mergeLine(values) {
+  const compact = values.filter(Boolean);
+  const out = [];
+  let score = 0;
+  for (let i = 0; i < compact.length; i++) {
+    if (compact[i] === compact[i + 1]) {
+      const merged = compact[i] * 2;
+      out.push(merged);
+      score += merged;
+      i++;
+    } else {
+      out.push(compact[i]);
+    }
+  }
+  while (out.length < 4) out.push(0);
+  return { line: out, score };
+}
+
+function mergeIndexes(direction) {
+  const rows = [];
+  for (let r = 0; r < 4; r++) rows.push([0, 1, 2, 3].map((c) => r * 4 + c));
+  const cols = [];
+  for (let c = 0; c < 4; c++) cols.push([0, 1, 2, 3].map((r) => r * 4 + c));
+  if (direction === "left") return rows;
+  if (direction === "right") return rows.map((row) => row.slice().reverse());
+  if (direction === "up") return cols;
+  return cols.map((col) => col.slice().reverse());
+}
+
+function hasMergeMoves(game) {
+  if (game.grid.some((value) => value === 0)) return true;
+  for (let i = 0; i < game.grid.length; i++) {
+    const row = Math.floor(i / 4);
+    const col = i % 4;
+    if (col < 3 && game.grid[i] === game.grid[i + 1]) return true;
+    if (row < 3 && game.grid[i] === game.grid[i + 4]) return true;
+  }
+  return false;
+}
+
+function moveMerge(game, direction) {
+  if (game.status !== "running") return;
+  let moved = false;
+  let gained = 0;
+  mergeIndexes(direction).forEach((indexes) => {
+    const before = indexes.map((i) => game.grid[i]);
+    const merged = mergeLine(before);
+    merged.line.forEach((value, n) => {
+      if (game.grid[indexes[n]] !== value) moved = true;
+      game.grid[indexes[n]] = value;
+    });
+    gained += merged.score;
+  });
+  if (!moved) return;
+  game.score += gained;
+  addMergeTile(game);
+  if (game.grid.some((value) => value >= 2048)) game.status = "won";
+  else if (!hasMergeMoves(game)) game.status = "lost";
+}
+
+function tileClass(value) {
+  if (!value) return "empty";
+  const power = Math.min(11, Math.log2(value));
+  return `v${power}`;
+}
+
+function mergeView(panel, state) {
+  const game = state.merge?.grid ? state.merge : createMergeGame();
+  state.merge = game;
+  const statusText = game.status === "won" ? "2048" : game.status === "lost" ? "Stuck" : String(game.score);
+  const move = (direction) => rerenderArcade(panel, (next) => moveMerge(next.merge, direction));
+  return el("div", { class: "arcade-game merge-game" }, [
+    el("div", { class: "arcade-controls" }, [
+      el("span", { class: `arcade-state ${game.status}`.trim() }, statusText),
+      el("button", {
+        class: "arcade-play",
+        type: "button",
+        onClick: () => rerenderArcade(panel, (next) => { next.merge = createMergeGame(); }),
+      }, "Play"),
+    ]),
+    el("div", { class: "merge-board" },
+      game.grid.map((value) => el("div", { class: `merge-tile ${tileClass(value)}` }, value || ""))),
+    el("div", { class: "merge-controls", "aria-label": "2048 controls" }, [
+      el("span"),
+      el("button", { class: "arcade-icon", type: "button", "aria-label": "Up", onClick: () => move("up") }, "↑"),
+      el("span"),
+      el("button", { class: "arcade-icon", type: "button", "aria-label": "Left", onClick: () => move("left") }, "←"),
+      el("button", { class: "arcade-icon", type: "button", "aria-label": "Down", onClick: () => move("down") }, "↓"),
+      el("button", { class: "arcade-icon", type: "button", "aria-label": "Right", onClick: () => move("right") }, "→"),
+    ]),
+  ]);
 }
 
 // Register the service worker (offline + installable). Safe no-op if unsupported.

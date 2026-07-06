@@ -3,6 +3,7 @@ import {
   el, render, topbar, button, connectionPill, toast, rulesModal, modal,
   PLAYER_COLORS, normalizePlayerColor, setPlayerColors,
   partyLeaderboard, takeStandings, clearStandings,
+  bindReactionSession,
 } from "./ui.js";
 import { hostRoom, joinRoom } from "./net.js";
 import { onlineSession } from "./session.js";
@@ -512,6 +513,7 @@ export function startOnline(game, transport, opts) {
     },
   });
   setPlayerColors(session.players, session.playerColors);
+  bindReactionSession(session);
   game.mount({
     mode: "online", isHost: opts.isHost, myIndex: opts.myIndex, session,
     players: session.players, playerColors: session.playerColors, settings: session.settings,
@@ -542,6 +544,7 @@ export function startLocal(game, home, { onBack, settings: initialSettings } = {
     rulesModal,
     settings: initialSettings,
     onStart: ({ session, players, playerColors, settings }) => {
+      bindReactionSession(null);
       game.mount({ mode: "local", isHost: true, session, players, playerColors, settings, exit: home });
     },
   });
