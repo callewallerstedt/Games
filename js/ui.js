@@ -103,9 +103,143 @@ function onBrandTap() {
 
 function showDebugMenu() {
   const close = modal("Debug", el("div", { class: "stack", style: "gap:12px" }, [
-    button("Hard reset (clear cache & refresh)", { big: true, onClick: () => { close(); hardRefreshSite(); } }),
+    button("Show welcome guide", { big: true, onClick: () => { close(); showWelcomeGuide({ force: true }); } }),
     button("Show waiting arcade", { big: true, onClick: () => { close(); injectWaitingArcadePreview(); } }),
+    button("Copy game suggestions", { big: true, onClick: () => copyGameSuggestions() }),
+    button("Hard reset (clear cache & refresh)", { variant: "secondary", onClick: () => { close(); hardRefreshSite(); } }),
   ]), { centered: true });
+}
+
+const WELCOME_KEY = "party_welcome_seen_v1";
+const SUGGESTIONS_KEY = "party_game_suggestions_v1";
+
+function welcomeStep(emoji, title, body) {
+  return el("div", { class: "welcome-step" }, [
+    el("div", { class: "welcome-step-icon", "aria-hidden": "true" }, emoji),
+    el("div", { class: "welcome-step-body" }, [
+      el("strong", {}, title),
+      el("p", {}, body),
+    ]),
+  ]);
+}
+
+export function markWelcomeSeen() {
+  try { localStorage.setItem(WELCOME_KEY, "1"); } catch {}
+}
+
+export function showWelcomeGuide({ force = false } = {}) {
+  if (!force) {
+    try { if (localStorage.getItem(WELCOME_KEY)) return null; } catch {}
+  }
+  let hideAgain = true;
+  const toggle = el("input", { type: "checkbox", checked: true, onchange: (e) => { hideAgain = e.target.checked; } });
+  const close = modal("Welcome", el("div", { class: "welcome-guide" }, [
+    el("p", { class: "welcome-lead" }, "Everything you need for game night — in about 30 seconds."),
+    el("div", { class: "welcome-steps" }, [
+      welcomeStep("🎮", "Pick a game", "Browse the catalog and tap a game to open it."),
+      welcomeStep("📱", "One phone", "Choose local play and pass the device around. Secret turns stay private."),
+      welcomeStep("🔗", "Host a room", "Choose online play, then share the invite link or let friends scan the QR code."),
+      welcomeStep("⏳", "While you wait", "Waiting screens include mini-games so nobody stares at a spinner."),
+      welcomeStep("🖊️", "Reactions", "Tap the floating smiley to send emoji reactions during online games."),
+    ]),
+    el("label", { class: "welcome-dismiss" }, [toggle, " Don't show this again"]),
+    el("div", { class: "footer-actions" }, button("Let's play →", {
+      big: true,
+      onClick: () => {
+        if (hideAgain) markWelcomeSeen();
+        close();
+      },
+    })),
+  ]), { centered: true });
+  return close;
+}
+
+export function maybeShowWelcome() {
+  try { if (localStorage.getItem(WELCOME_KEY)) return; } catch {}
+  queueMicrotask(() => showWelcomeGuide());
+}
+
+function loadGameSuggestions() {
+  try {
+    const list = JSON.parse(localStorage.getItem(SUGGESTIONS_KEY) || "[]");
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveGameSuggestion(entry) {
+  const list = loadGameSuggestions();
+  list.push(entry);
+  try { localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(list)); } catch {}
+}
+
+export function copyGameSuggestions() {
+  const list = loadGameSuggestions();
+  if (!list.length) {
+    toast("No suggestions saved yet");
+    return;
+  }
+  const text = list.map((item, i) => {
+    const when = item.at ? new Date(item.at).toISOString() : "unknown";
+    return `${i + 1}. ${item.title}\n${item.description}\n(${when})\n`;
+  }).join("\n");
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(() => toast(`Copied ${list.length} suggestion${list.length === 1 ? "" : "s"}`)).catch(() => toast("Copy failed"));
+  } else {
+    toast(`${list.length} suggestion${list.length === 1 ? "" : "s"} saved locally`);
+  }
+}
+
+export function suggestGameModal() {
+  const titleInput = el("input", {
+    class: "field",
+    type: "text",
+    placeholder: "e.g. Reverse Charades",
+    maxlength: "80",
+    "aria-label": "Game name",
+  });
+  const descInput = el("textarea", {
+    class: "field suggest-field",
+    placeholder: "Describe the rules, how turns work, and what makes it fun…",
+    maxlength: "1200",
+    rows: 5,
+    "aria-label": "How the game would work",
+  });
+  const submit = () => {
+    const title = titleInput.value.trim();
+    const description = descInput.value.trim();
+    if (!title || !description) {
+      toast("Please add a name and description");
+      return;
+    }
+    saveGameSuggestion({ title, description, at: Date.now() });
+    close();
+    toast("Thanks — we got your idea! ✨");
+  };
+  titleInput.addEventListener("keydown", (e) => { if (e.key === "Enter") descInput.focus(); });
+  descInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit(); });
+  const close = modal("Suggest a game", el("div", { class: "stack suggest-form" }, [
+    el("p", { class: "muted tiny center" }, "Tell us what you'd like to play next. We read every suggestion."),
+    el("label", { class: "stack suggest-label" }, [
+      el("span", { class: "profile-editor-label" }, "Game idea"),
+      titleInput,
+    ]),
+    el("label", { class: "stack suggest-label" }, [
+      el("span", { class: "profile-editor-label" }, "How it would work"),
+      descInput,
+    ]),
+    el("div", { class: "footer-actions" }, button("Send suggestion ✓", { big: true, onClick: submit })),
+  ]), { centered: true });
+  queueMicrotask(() => titleInput.focus());
+  return close;
+}
+
+export function matchesGameSearch(game, query) {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return true;
+  const hay = `${game.title} ${game.blurb} ${game.id} ${game.emoji || ""}`.toLowerCase();
+  return needle.split(/\s+/).every((part) => hay.includes(part));
 }
 
 function injectWaitingArcadePreview() {
@@ -349,7 +483,7 @@ export function onlineReadyGate(session, gateId, onAllReady, opts = {}) {
       btn.disabled = true;
       btn.textContent = "Ready - waiting for others";
       updateStatus();
-      if (session.isHost) publishState();
+      if (session.isHost) { publishState(); armForce(); }
       else session.sendPrivate("ready_gate", { id: gateId });
       maybeGo();
     },
@@ -372,7 +506,25 @@ export function onlineReadyGate(session, gateId, onAllReady, opts = {}) {
     session.sendPrivate("ready_gate_go", { id: gateId });
     finish();
   }
+  // Escape hatch: if someone dropped or closed the app, the host can push the
+  // round on instead of the whole room waiting forever.
+  const forceBtn = el("button", {
+    class: "btn ghost ready-force",
+    style: "display:none",
+    onClick: () => {
+      if (!session.isHost || done) return;
+      session.sendPrivate("ready_gate_go", { id: gateId });
+      finish();
+    },
+  }, "Someone missing? Continue anyway");
+  let forceTimer = null;
+  function armForce() {
+    if (!session.isHost || done) return;
+    clearTimeout(forceTimer);
+    forceTimer = setTimeout(() => { if (!done && ready.size < count) forceBtn.style.display = ""; }, 6000);
+  }
   const offs = [];
+  offs.push(() => clearTimeout(forceTimer));
   offs.push(session.on("ready_gate", (m) => {
     if (!session.isHost || !m || m.id !== gateId || done) return;
     ready.add(m.from);
@@ -390,7 +542,19 @@ export function onlineReadyGate(session, gateId, onAllReady, opts = {}) {
     if (!m || m.id !== gateId) return;
     finish();
   }));
-  return el("div", { class: "ready-gate" }, [status, btn]);
+  return el("div", { class: "ready-gate" }, [status, btn, forceBtn]);
+}
+
+/**
+ * Host-only "someone's missing" escape hatch for wait-for-everyone phases.
+ * Hidden for `delayMs`, then fades in; tapping runs `onForce` (which should fill
+ * the missing inputs and advance the round). Returns null for guests.
+ */
+export function hostForceContinue(session, onForce, { delayMs = 8000, label = "Someone missing? Continue anyway" } = {}) {
+  if (!session?.isHost) return null;
+  const btn = el("button", { class: "btn ghost ready-force", style: "display:none", onClick: onForce }, label);
+  setTimeout(() => { if (btn.isConnected) btn.style.display = ""; }, delayMs);
+  return btn;
 }
 
 export function localReadyGate(names, onAllReady, opts = {}) {
@@ -1331,15 +1495,21 @@ export function iosInstallTip() {
 
 // ---------- Theme ----------
 export const THEMES = [
-  { value: "auto", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "pink", label: "Pink" },
+  { value: "auto", label: "System", swatch: ["#f5f7f8", "#176b5b", "#111718"] },
+  { value: "light", label: "Light", swatch: ["#f5f7f8", "#ffffff", "#176b5b"] },
+  { value: "dark", label: "Dark", swatch: ["#111718", "#192123", "#48b69d"] },
+  { value: "gold", label: "Cream & Gold", swatch: ["#faf6ec", "#fffdf6", "#b8912f"] },
+  { value: "pink", label: "Blossom", swatch: ["#fdf4f7", "#fffafc", "#f08aaa"] },
+  { value: "midnight", label: "Midnight", swatch: ["#0d1024", "#171b38", "#8b7cf7"] },
+  { value: "ocean", label: "Ocean", swatch: ["#eef6f9", "#ffffff", "#0f7d9e"] },
 ];
 const THEME_COLORS = {
   light: "#f5f7f8",
   dark: "#111718",
   pink: "#fceef3",
+  gold: "#faf6ec",
+  midnight: "#0d1024",
+  ocean: "#eef6f9",
   autoLight: "#f5f7f8",
   autoDark: "#111718",
 };
@@ -1354,17 +1524,35 @@ export function applyTheme(t) {
   if (t === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", t);
   document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
-    if (t === "light") meta.setAttribute("content", THEME_COLORS.light);
-    else if (t === "dark") meta.setAttribute("content", THEME_COLORS.dark);
-    else if (t === "pink") meta.setAttribute("content", THEME_COLORS.pink);
+    if (t !== "auto" && THEME_COLORS[t]) meta.setAttribute("content", THEME_COLORS[t]);
     else meta.setAttribute("content", meta.media?.includes("dark") ? THEME_COLORS.autoDark : THEME_COLORS.autoLight);
   });
   try { localStorage.setItem("together_theme", t); } catch {}
 }
-// Theme picker sheet. onChange called after applying.
+// Theme picker sheet: tappable cards with live color swatches.
 export function themePicker(onChange) {
-  const seg = segmented(THEMES, getTheme(), (v) => { applyTheme(v); onChange && onChange(v); });
-  return modal("Appearance", [el("p", { class: "muted" }, "Choose how the app looks on this device."), seg.node]);
+  let current = getTheme();
+  const grid = el("div", { class: "theme-grid" });
+  const draw = () => {
+    grid.replaceChildren(...THEMES.map((theme) => el("button", {
+      class: `theme-card${theme.value === current ? " active" : ""}`,
+      type: "button",
+      "aria-pressed": theme.value === current ? "true" : "false",
+      onClick: () => {
+        current = theme.value;
+        applyTheme(theme.value);
+        draw();
+        onChange && onChange(theme.value);
+      },
+    }, [
+      el("span", { class: "theme-swatches" }, theme.swatch.map((color) =>
+        el("i", { style: `background:${color}` }))),
+      el("span", { class: "theme-name" }, theme.label),
+      theme.value === current ? el("span", { class: "theme-check" }, "✓") : null,
+    ])));
+  };
+  draw();
+  return modal("Appearance", [el("p", { class: "muted" }, "Choose how the app looks on this device."), grid]);
 }
 
 // ---------- Delight: confetti + haptics ----------

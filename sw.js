@@ -1,5 +1,5 @@
 // Offline shell — network-first for code so deploys show up immediately.
-const CACHE = "party-games-v19";
+const CACHE = "party-games-v20";
 
 const PRECACHE = [
   "./",
@@ -28,6 +28,7 @@ self.addEventListener("fetch", (e) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== location.origin) return;
+  if (url.pathname.includes("/api/")) return; // never cache API traffic
 
   // Always try network first — fall back to cache when offline.
   e.respondWith(

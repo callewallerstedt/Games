@@ -35,7 +35,31 @@ the game data then flows directly between the two phones.
 Installable as a home-screen app (PWA): on iPhone, open in Safari → Share → **Add to Home
 Screen** for a full-screen, offline-capable experience.
 
-**Themes:** tap 🎨 on the home screen to switch between Default, 🌸 Cute (pink), and 🌙 Dark.
+**Themes:** tap ◐ on the home screen to switch between System, Light, Dark, ✨ Cream & Gold,
+🌸 Blossom, 🌌 Midnight, and 🌊 Ocean.
+
+## Accounts & friends (optional)
+
+When the site is deployed on Vercel with an Upstash Redis (KV) integration, a 👥 button
+appears on the home screen: create an account (username + password), add friends by
+username, see when they're online / in a lobby / in a game, join their room with one tap,
+or send them an invite. Favorites and per-game stats sync to your account so they follow
+you across devices. Without the API (e.g. on GitHub Pages) all of this hides itself and
+the app works exactly as before.
+
+### Vercel setup
+
+1. Import the repo at [vercel.com/new](https://vercel.com/new) (no build step — it's static files + `api/`).
+2. In the project: **Storage → Create → Upstash Redis (or "KV")** and connect it. That sets
+   `KV_REST_API_URL` / `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_URL`/`_TOKEN`) which
+   `api/social.js` reads.
+3. Redeploy. Done — `/api/social` answers and the friends UI appears.
+
+Local dev with the API mounted (uses an in-memory store, no credentials needed):
+
+```bash
+npm run dev   # http://localhost:8000
+```
 
 **Reconnecting (two phones):** the host's room stays open, so if a phone drops, just reopen
 the link or scan the QR again (tap the connection pill mid-game to re-show it) — you'll be

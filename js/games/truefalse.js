@@ -1,5 +1,5 @@
 // "Crazy True or False" — bonkers facts; race to call them right.
-import { el, render, button, gameHeader, passDevice, shuffle, celebrate, haptic, localReadyGate, onlineReadyGate, connectionPill, scoreboard } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, shuffle, celebrate, haptic, localReadyGate, onlineReadyGate, connectionPill, scoreboard, hostForceContinue } from "../ui.js";
 import { TRUEFALSE_FACTS } from "../data/truefalse-facts.js";
 
 const game = {
@@ -67,8 +67,12 @@ function online(ctx) {
   session.onStatus(status.set);
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
 
-  function wait(text) {
-    screen(el("div", { class: "card center" }, [el("div", { class: "spinner" }), el("p", { class: "muted" }, text)]));
+  function wait(text, onForce = null) {
+    screen(el("div", { class: "card center" }, [
+      el("div", { class: "spinner" }),
+      el("p", { class: "muted" }, text),
+      onForce ? hostForceContinue(session, onForce, { label: "Someone missing? Reveal anyway" }) : null,
+    ]));
   }
 
   function showQuestion(statement) {
@@ -76,7 +80,7 @@ function online(ctx) {
       picks[session.myIndex] = value;
       // Waiting screen first: checkReveal() may render the reveal synchronously
       // when the host locks in last, and that must not be overwritten.
-      wait("Answer locked. Waiting for everyone else.");
+      wait("Answer locked. Waiting for everyone else.", () => checkReveal(true));
       if (session.isHost) checkReveal();
       else session.send("tf_pick", { value, round });
     }));
@@ -92,8 +96,8 @@ function online(ctx) {
     showQuestion(fact.statement);
   }
 
-  function checkReveal() {
-    if (!session.isHost || picks.some((pick) => pick === null)) return;
+  function checkReveal(force = false) {
+    if (!session.isHost || (!force && picks.some((pick) => pick === null))) return;
     picks.forEach((pick, i) => { if (pick === fact.answer) scores[i]++; });
     const payload = { fact, picks: picks.slice(), scores: scores.slice(), round };
     session.send("tf_reveal", payload);

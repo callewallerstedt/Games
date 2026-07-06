@@ -127,10 +127,20 @@ function onlineGame(ctx) {
   }
 
   function showWaiting(q, mine) {
+    // Host escape hatch: if someone dropped mid-question, reveal without them
+    // instead of hanging the whole room. Missing answers show as "(no answer)".
+    const forceReveal = session.isHost
+      ? el("button", { class: "btn ghost ready-force", style: "display:none", onClick: () => {
+          answers = answers.map((a) => a == null ? "(no answer)" : a);
+          hostTryReveal();
+        } }, "Someone missing? Reveal anyway")
+      : null;
+    if (forceReveal) setTimeout(() => { if (forceReveal.isConnected) forceReveal.style.display = ""; }, 8000);
     screen(el("div", { class: "card" }, [
       el("div", { class: "q-big" }, q),
       el("div", { class: "answer-card" }, [el("span", { class: "who" }, "You said"), el("span", { class: "val" }, mine)]),
       el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Waiting for the rest of the room"]),
+      forceReveal,
     ]));
   }
 
@@ -231,25 +241,50 @@ function localGame(ctx) {
     cows = names.map(() => false);
     let matched2p = names.length === 2 && maxSize === 2;
     let overridden = false;
+    // Multi-player: remember the pre-round baseline and which players count as
+    // the herd, so the group can fix "same idea, different spelling" and rescore.
+    const baseScores = scores.slice();
+    const herdSet = new Set();
+    const applyHerd = () => {
+      const valid = herdSet.size >= 2;
+      names.forEach((_, i) => {
+        scores[i] = baseScores[i] + (valid && herdSet.has(i) ? 1 : 0);
+        cows[i] = !(valid && herdSet.has(i));
+      });
+    };
     if (names.length === 2) {
       if (matched2p) { scores[0]++; scores[1]++; celebrate(); }
       else cows = [true, true];
     } else {
       groupedAnswers.forEach((g) => {
-        if (g.length === maxSize && maxSize > 1) g.forEach((i) => scores[i]++);
-        if (g.length === 1) g.forEach((i) => { cows[i] = true; });
+        if (g.length === maxSize && maxSize > 1) g.forEach((i) => herdSet.add(i));
       });
+      applyHerd();
+      if (herdSet.size > 1) celebrate();
     }
 
     function draw() {
+      const herdSize = names.length === 2 ? (matched2p ? 2 : 0) : herdSet.size;
       const pointsLine = names.length === 2
         ? el("div", { class: `verdict ${matched2p ? "match" : "nomatch"}` },
             matched2p ? "🧠 You think alike! +1 each" : "🐮 No match — Pink Cow for both!")
-        : el("div", { class: "verdict match" }, "🐄 The herd scores!");
-      const rows = answers.map((a, i) => el("div", { class: "answer-card reveal-anim" }, [
-        el("span", { class: "who" }, names[i] + (cows[i] ? " 🐷" : "")),
-        el("span", { class: "val" }, a),
-      ]));
+        : el("div", { class: `verdict ${herdSize > 1 ? "match" : "nomatch"}` },
+            herdSize > 1 ? `🐄 The herd: ${herdSize} matched (+1 each)` : "Everyone went their own way");
+      const rows = answers.map((a, i) => {
+        const card = el("div", {
+          class: `answer-card reveal-anim${names.length > 2 ? " selectable" : ""}${names.length > 2 && herdSet.has(i) ? " chosen" : ""}`,
+        }, [
+          el("span", { class: "who" }, names[i] + (cows[i] ? " 🐷" : "")),
+          el("span", { class: "val" }, a),
+        ]);
+        // Group override: tap who really matched (typos, synonyms), rescore live.
+        if (names.length > 2) card.onclick = () => {
+          if (herdSet.has(i)) herdSet.delete(i); else herdSet.add(i);
+          applyHerd();
+          draw();
+        };
+        return card;
+      });
       const standings = names.map((n, i) => ({ n, s: scores[i], cow: cows[i] }))
         .sort((a, b) => b.s - a.s)
         .map((p) => el("div", { class: "answer-card" }, [
@@ -261,9 +296,13 @@ function localGame(ctx) {
             scores[0]++; scores[1]++; cows = [false, false]; matched2p = true; overridden = true; celebrate(); draw();
           } })
         : null;
+      const overrideHint = names.length > 2
+        ? el("p", { class: "muted center tiny", style: "margin:0" }, "Tap answers to change who counts as the herd — scores update instantly.")
+        : null;
       screen(el("div", { class: "screen" }, [
         el("div", { class: "q-big" }, q),
         el("div", { class: "stack" }, rows),
+        overrideHint,
         pointsLine,
         el("h3", { class: "center", style: "margin-top:16px" }, "Standings"),
         el("div", { class: "stack" }, standings),

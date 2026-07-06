@@ -3,7 +3,7 @@
 // related-but-different question. Pass the phone so each reads (and optionally
 // answers) in secret. Then the group discusses and votes who the impostor is.
 
-import { el, render, button, gameHeader, passDevice, segmented, scoreChip, shuffle, celebrate, haptic, localReadyGate, onlineReadyGate, connectionPill, scoreboard } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, segmented, scoreChip, shuffle, celebrate, haptic, localReadyGate, onlineReadyGate, connectionPill, scoreboard, hostForceContinue } from "../ui.js";
 import { IMPOSTOR } from "../data/decks.js";
 
 const game = {
@@ -45,7 +45,11 @@ function online(ctx) {
   const status = connectionPill();
   session.onStatus(status.set);
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
-  const wait = (text) => screen(el("div", { class: "card center" }, [el("div", { class: "spinner" }), el("p", { class: "muted" }, text)]));
+  const wait = (text, onForce = null) => screen(el("div", { class: "card center" }, [
+    el("div", { class: "spinner" }),
+    el("p", { class: "muted" }, text),
+    onForce ? hostForceContinue(session, onForce, { label: "Someone missing? Continue anyway" }) : null,
+  ]));
 
   function showQuestion(question) {
     if (answerMode === "say") {
@@ -73,7 +77,10 @@ function online(ctx) {
     answers[session.myIndex] = answer;
     // Waiting screen first: checkAnswers() may render the discussion screen
     // synchronously when the host answers last, and that must not be overwritten.
-    wait("Answer locked. Waiting for everyone.");
+    wait("Answer locked. Waiting for everyone.", () => {
+      answers = answers.map((a) => a == null ? "(no answer)" : a);
+      checkAnswers();
+    });
     if (session.isHost) checkAnswers();
     else session.send("imp_answer", { round, answer });
   }
@@ -134,14 +141,14 @@ function online(ctx) {
     votes[session.myIndex] = vote;
     // Waiting screen first: checkVotes() may render the reveal synchronously
     // when the host votes last, and that must not be overwritten.
-    wait("Vote locked. Waiting for the room.");
+    wait("Vote locked. Waiting for the room.", () => checkVotes(true));
     if (session.isHost) checkVotes(); else session.send("imp_vote", { round, vote });
   }
 
-  function checkVotes() {
-    if (!session.isHost || votes.some((vote) => vote == null)) return;
+  function checkVotes(force = false) {
+    if (!session.isHost || (!force && votes.some((vote) => vote == null))) return;
     const counts = names.map(() => 0);
-    votes.forEach((vote) => { counts[vote]++; });
+    votes.forEach((vote) => { if (vote != null) counts[vote]++; });
     const highest = Math.max(...counts);
     const leaders = counts.map((count, i) => count === highest ? i : -1).filter((i) => i >= 0);
     const caught = leaders.length === 1 && leaders[0] === impostor;

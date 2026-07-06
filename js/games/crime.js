@@ -1,5 +1,5 @@
 // "Case Files" — cooperative detective stories; uncover clues, then accuse.
-import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic, localReadyGate, onlineReadyGate, connectionPill, scoreboard } from "../ui.js";
+import { el, render, button, gameHeader, passDevice, scoreChip, shuffle, celebrate, haptic, localReadyGate, onlineReadyGate, connectionPill, scoreboard, hostForceContinue } from "../ui.js";
 import { CRIME_CASES } from "../data/crime-cases.js";
 
 const game = {
@@ -48,7 +48,11 @@ function online(ctx) {
   const status = connectionPill();
   session.onStatus(status.set);
   const screen = (body) => render(el("div", { class: "screen" }, [gameHeader(ctx, game, status.node), body]));
-  const wait = (text) => screen(el("div", { class: "card center" }, [el("div", { class: "spinner" }), el("p", { class: "muted" }, text)]));
+  const wait = (text, onForce = null) => screen(el("div", { class: "card center" }, [
+    el("div", { class: "spinner" }),
+    el("p", { class: "muted" }, text),
+    onForce ? hostForceContinue(session, onForce, { label: "Someone missing? Continue anyway" }) : null,
+  ]));
 
   function publicCase() {
     return { title: current.title, intro: current.intro, suspects: current.suspects };
@@ -140,13 +144,13 @@ function online(ctx) {
     accusations[session.myIndex] = accusation;
     // Waiting screen first: checkAccusations() may render the reveal synchronously
     // when the host accuses last, and that must not be overwritten.
-    wait("Accusation locked. Waiting for the other detectives.");
+    wait("Accusation locked. Waiting for the other detectives.", () => checkAccusations(true));
     if (session.isHost) checkAccusations(); else session.send("crime_accuse", { round, accusation });
   }
 
-  function checkAccusations() {
-    if (!session.isHost || accusations.some((value) => value == null)) return;
-    const correct = accusations.map((accusation) => checkAnswer(accusation, current));
+  function checkAccusations(force = false) {
+    if (!session.isHost || (!force && accusations.some((value) => value == null))) return;
+    const correct = accusations.map((accusation) => accusation != null && checkAnswer(accusation, current));
     correct.forEach((value, i) => { if (value) scores[i]++; });
     const payload = {
       round, title: current.title, solution: current.solution, explain: current.explain,
@@ -166,7 +170,7 @@ function online(ctx) {
       ]),
       el("div", { class: "stack" }, names.map((name, i) => el("div", { class: `answer-card ${payload.correct[i] ? "me" : ""}` }, [
         el("span", { class: "who" }, name),
-        el("span", { class: "val" }, `${payload.accusations[i]} ${payload.correct[i] ? "✓" : "×"}`),
+        el("span", { class: "val" }, `${payload.accusations[i] || "(no accusation)"} ${payload.correct[i] ? "✓" : "×"}`),
       ]))),
       scoreboard(names, payload.scores, { colors: ctx.playerColors }),
       el("div", { class: "footer-actions" }, onlineReadyGate(session, `crime:${payload.round}`, startCase, { label: "Ready for next case" })),

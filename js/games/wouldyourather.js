@@ -2,7 +2,7 @@
 // Match = compatibility points; either way it sparks a fun debate.
 // Online = 2 phones (simultaneous reveal). Local = pass the phone.
 
-import { el, render, button, connectionPill, passDevice, gameHeader, meter, shuffle, celebrate, onlineReadyGate, localReadyGate, scoreboard } from "../ui.js";
+import { el, render, button, connectionPill, passDevice, gameHeader, meter, shuffle, celebrate, onlineReadyGate, localReadyGate, scoreboard, hostForceContinue } from "../ui.js";
 import { WOULD_YOU_RATHER } from "../data/decks.js";
 
 const game = {
@@ -57,10 +57,10 @@ function online(ctx) {
     session.send("wyr_round", { prompt, round });
     showPick(prompt);
   }
-  function hostTryReveal() {
-    if (!session.isHost || picks.some((pick) => pick == null)) return;
+  function hostTryReveal(force = false) {
+    if (!session.isHost || (!force && picks.some((pick) => pick == null))) return;
     const aCount = picks.filter((pick) => pick === "a").length;
-    const bCount = picks.length - aCount;
+    const bCount = picks.filter((pick) => pick === "b").length;
     const majority = aCount === bCount ? null : aCount > bCount ? "a" : "b";
     if (majority) picks.forEach((pick, index) => { if (pick === majority) scores[index]++; });
     const payload = { prompt, picks: picks.slice(), scores: scores.slice(), aCount, bCount, majority, round };
@@ -96,6 +96,7 @@ function online(ctx) {
         choice("B", p.b, { disabled: true, cls: which === "b" ? "sel" : "" }),
       ]),
       el("div", { class: "waiting" }, [el("div", { class: "spinner" }), "Locked in. Waiting for the room."]),
+      hostForceContinue(session, () => hostTryReveal(true), { label: "Someone missing? Reveal anyway" }),
     ]));
   }
   function showReveal(p) {

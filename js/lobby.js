@@ -13,6 +13,7 @@ import {
   playerColorControl, rememberedName, rememberedColor, saveName, saveColor,
   localSetup, defaultLobbySettings, renderLobbySettings, renderPlayerRoster,
 } from "./player-setup.js";
+import { setPresenceContext, recordPlay, friendsPanel, isSignedIn } from "./social.js";
 
 const ROOM_CAPACITY = 10;
 let active = null;
@@ -161,6 +162,11 @@ function roomScreen({ game, joinUrl, roster, settings, profile, isHost, started,
             el("p", { class: "muted tiny center" }, "Scan with a phone camera to join"),
             el("div", { class: "code-chip" }, joinUrl),
             button("Copy invite link", { variant: "secondary", onClick: () => copy(joinUrl) }),
+            isSignedIn()
+              ? button("Invite friends", { variant: "secondary", onClick: () => friendsPanel({
+                  inviteContext: { gameId: game.id, gameTitle: game.title, joinUrl },
+                }) })
+              : null,
           ]),
         ])
       : null,
@@ -266,6 +272,7 @@ export function hostFlow(initialGame, { home, startOnline: mountOnline, onLocalF
     currentSession?.destroy?.();
     currentSession = null;
     started = false;
+    if (joinUrl) setPresenceContext({ status: "lobby", gameId: game.id, gameTitle: game.title, joinUrl, canJoin: roster.length < ROOM_CAPACITY });
     render(roomScreen({
       game, joinUrl, roster, settings, profile, isHost: true, started,
       onBack: home,
@@ -424,6 +431,7 @@ export function joinFlow(gameId, peerId, { home, startOnline: mountOnline }) {
     currentSession?.destroy?.();
     currentSession = null;
     started = false;
+    setPresenceContext({ status: "lobby", gameId: game.id, gameTitle: game.title, joinUrl: location.href, canJoin: roster.length < ROOM_CAPACITY });
     render(roomScreen({
       game, joinUrl: null, roster, settings, profile, isHost: false, started,
       onBack: home, statusNode: status.node,
@@ -502,6 +510,11 @@ export function joinFlow(gameId, peerId, { home, startOnline: mountOnline }) {
 
 export function startOnline(game, transport, opts) {
   const roster = opts.roster || [];
+  recordPlay(game.id, { mode: "online" });
+  setPresenceContext({
+    status: "ingame", gameId: game.id, gameTitle: game.title,
+    joinUrl: opts.joinUrl || null, canJoin: !!opts.joinUrl && roster.length < ROOM_CAPACITY,
+  });
   const session = onlineSession(transport, {
     ...opts,
     // Resolve against the *live* roster so a guest who reconnected with a new
@@ -545,6 +558,8 @@ export function startLocal(game, home, { onBack, settings: initialSettings } = {
     settings: initialSettings,
     onStart: ({ session, players, playerColors, settings }) => {
       bindReactionSession(null);
+      recordPlay(game.id, { mode: "local" });
+      setPresenceContext({ status: "ingame", gameId: game.id, gameTitle: game.title, canJoin: false });
       game.mount({ mode: "local", isHost: true, session, players, playerColors, settings, exit: home });
     },
   });

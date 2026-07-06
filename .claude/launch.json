@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "games",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "4173"],
-      "port": 4173
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/dev-server.mjs"],
+      "port": 8000
     }
   ]
 }

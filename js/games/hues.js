@@ -3,7 +3,7 @@
 // colour on a spectrum. Score by how close. Roles swap. Co-op team score.
 // Works on two phones (secret colour stays on the cluer's phone) or one (pass it).
 
-import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, celebrate, onlineReadyGate, localReadyGate } from "../ui.js";
+import { el, render, button, pill, connectionPill, passDevice, gameHeader, scoreChip, celebrate, onlineReadyGate, localReadyGate, setGameCleanup } from "../ui.js";
 
 const COLS = 12;
 const ROWS = 8;
@@ -123,6 +123,9 @@ function onlineGame(ctx) {
   let guesses = names.map(() => null); // host-authoritative locked guesses
   let progress = { count: 0, total: Math.max(1, N - 1) };
   let phase = null;                    // 'cluer-wait' | 'guesser-wait' — for live progress redraws
+  let revealed = false;                // guards double-reveal (stall timer + last guess racing)
+  let stallTimeout = null;             // a dropped guesser must never hang the round forever
+  setGameCleanup(() => clearTimeout(stallTimeout));
 
   const status = connectionPill();
   session.onStatus(status.set);
@@ -214,6 +217,9 @@ function onlineGame(ctx) {
   function startGuessPhase() {
     if (!isHost) return;
     progress = { count: 0, total: Math.max(1, N - 1) };
+    revealed = false;
+    clearTimeout(stallTimeout);
+    stallTimeout = setTimeout(() => hostReveal(), 60000);
     session.send("hues_guessnow", { round, clue });
     if (iAmCluer()) showCluerWait();
     else showGuess(clue);
@@ -230,7 +236,9 @@ function onlineGame(ctx) {
 
   // ---- Reveal ----
   function hostReveal() {
-    if (!isHost) return;
+    if (!isHost || revealed) return;
+    revealed = true;
+    clearTimeout(stallTimeout);
     const points = names.map((_, i) => (i === cluerIndex() || guesses[i] == null) ? null : pointsFor(distance(target, guesses[i])));
     const roundPoints = points.reduce((sum, p) => sum + (p || 0), 0);
     team.total += roundPoints;
