@@ -78,7 +78,7 @@ function relabel(k, target) {
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 // Throws two dice across `host` (an element); resolves once they've settled.
-export async function rollDice3D(host, values) {
+export async function rollDice3D(host, values, { onHit = null } = {}) {
   const [THREE, CANNON, { RoundedBoxGeometry }] = await load();
   const rect = host.getBoundingClientRect();
   const W = Math.max(200, rect.width), H = Math.max(200, rect.height);
@@ -96,8 +96,9 @@ export async function rollDice3D(host, values) {
     b.position.set(...pos);
     b.quaternion.setFromAxisAngle(new CANNON.Vec3(...axis), angle);
     world.addBody(b);
+    return b;
   };
-  plane([0, 0, 0], [1, 0, 0], -Math.PI / 2);
+  const floorBody = plane([0, 0, 0], [1, 0, 0], -Math.PI / 2);
   plane([-halfX, 0, 0], [0, 1, 0], Math.PI / 2);
   plane([halfX, 0, 0], [0, 1, 0], -Math.PI / 2);
   plane([0, 0, -halfZ], [0, 1, 0], 0);
@@ -117,9 +118,21 @@ export async function rollDice3D(host, values) {
     world.addBody(b);
     return b;
   });
+  // Record real impacts so the sound matches what you see.
+  const hits = [];
+  let step = 0;
+  const lastHit = new Map();
+  bodies.forEach((b) => b.addEventListener("collide", (e) => {
+    const v = Math.abs(e.contact.getImpactVelocityAlongNormal());
+    const kind = e.body === floorBody ? "floor" : bodies.includes(e.body) ? "dice" : "wall";
+    const key = kind === "dice" ? "dice" : b.id;
+    if (v < 0.6 || step - (lastHit.get(key) ?? -99) < 3) return;
+    lastHit.set(key, step);
+    hits.push({ frame: step, v, kind });
+  }));
   const frames = [];
   let calm = 0;
-  for (let step = 0; step < 60 * 6; step++) {
+  for (step = 0; step < 60 * 6; step++) {
     world.step(1 / 60);
     frames.push(bodies.map((b) => [b.position.x, b.position.y, b.position.z, b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w]));
     const still = bodies.every((b) => b.velocity.length() < 0.08 && b.angularVelocity.length() < 0.08 && b.position.y < SIZE);
@@ -174,9 +187,14 @@ export async function rollDice3D(host, values) {
 
   await new Promise((resolve) => {
     const t0 = performance.now();
+    let hitIdx = 0;
     const tick = (now) => {
       try {
         const f = Math.max(0, Math.min(frames.length - 1, Math.floor(((now - t0) / 1000) * 60 * 1.15)));
+        while (hitIdx < hits.length && hits[hitIdx].frame <= f) {
+          const hit = hits[hitIdx++];
+          try { onHit?.(hit.v, hit.kind); } catch {}
+        }
         place(f);
         renderer.render(scene, camera);
         if (f < frames.length - 1) requestAnimationFrame(tick);

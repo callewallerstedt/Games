@@ -4,6 +4,7 @@
 import { TILES, SECTORS, NEWS, DEALS, COLORS, PRESETS, TRANSPORT_RENT, OIL_MULT, BAIL, TICKET_FEE } from "./data.js";
 import * as G from "./engine.js";
 import { rollDice3D, preloadDice } from "./dice3d.js";
+import { sfx, isMuted, setMuted } from "./sound.js";
 
 const { money } = G;
 const SHORT = { "Johnson & Johnson": "J&J", "Lockheed Martin": "Lockheed", "Purdue Pharma": "Purdue", "Virgin Galactic": "Virgin Galactic", "Philip Morris": "Philip Morris" };
@@ -41,12 +42,21 @@ const ICONS = {
   book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98M15.41 6.51l-6.82 3.98"/>',
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
+  volumeOff: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="m22 9-6 6M16 9l6 6"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
 };
 function icon(name, cls = "i") {
   const t = document.createElement("template");
   t.innerHTML = `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
   return t.content.firstChild;
+}
+function soundButton() {
+  const btn = h("button", { class: "iconbtn", title: "Sound on/off" });
+  const paint = () => btn.replaceChildren(icon(isMuted() ? "volumeOff" : "volume"));
+  btn.addEventListener("click", () => { setMuted(!isMuted()); paint(); if (!isMuted()) sfx.chime(); });
+  paint();
+  return btn;
 }
 const brandMark = () => h("span", { html: '<svg class="brand-mark" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#151c26"/><rect x="10" y="10" width="44" height="44" rx="6" fill="none" stroke="#f5c451" stroke-width="5"/><rect x="22" y="22" width="20" height="20" rx="3" fill="#f5c451"/></svg>' }).firstChild;
 const wordmark = () => h("div", { class: "wordmark" }, "COMPAN", h("b", {}, "O"), "LY");
@@ -287,15 +297,23 @@ function resetDisplay() {
 }
 
 async function animate(events) {
+  const mine = myId();
   for (const e of events) {
-    if (e.type === "roll") await rollDice(e.dice);
+    if (e.type === "roll") { await rollDice(e.dice); if (e.dice[0] === e.dice[1]) sfx.sparkle(); }
     else if (e.type === "move") await animateMove(e.pid, e.from, e.to, e.kind);
-    else if (e.type === "card") { showCardNow(e.deck, e.id); await sleep(900); }
-    else if (e.type === "cash") floatCash(e.pid, e.amount);
-    else if (e.type === "buy") flashTile(e.tile, app.game.players[e.pid]?.color);
-    else if (e.type === "gulag") { flashTile(10, "#ef4444"); await sleep(250); }
-    else if (e.type === "bankrupt") await sleep(300);
-    else if (e.type === "claimable" && e.to === myId()) toast(`Claim your ${money(e.amount)} rent before the next roll!`, "turn");
+    else if (e.type === "card") { sfx.card(); showCardNow(e.deck, e.id); await sleep(900); }
+    else if (e.type === "cash") { floatCash(e.pid, e.amount); sfx.cash(e.amount, e.pid === mine); }
+    else if (e.type === "buy") { flashTile(e.tile, app.game.players[e.pid]?.color); sfx.register(); }
+    else if (e.type === "build") sfx.build();
+    else if (e.type === "auction") sfx.gavel();
+    else if (e.type === "bid") sfx.tick();
+    else if (e.type === "trend") sfx.sting(e.mult >= 1);
+    else if (e.type === "tradeOffer" && e.to === mine) sfx.alert();
+    else if (e.type === "tradeClosed" && e.accepted) sfx.register();
+    else if (e.type === "over") sfx.fanfare();
+    else if (e.type === "gulag") { sfx.clang(); flashTile(10, "#ef4444"); await sleep(250); }
+    else if (e.type === "bankrupt") { sfx.sad(); await sleep(300); }
+    else if (e.type === "claimable" && e.to === myId()) { sfx.alert(); toast(`Claim your ${money(e.amount)} rent before the next roll!`, "turn"); }
   }
 }
 
@@ -310,7 +328,8 @@ async function rollDice(dice) {
     try {
       app.els.dice.style.visibility = "hidden";
       // Never let a slow CDN or GPU hiccup hold up the game.
-      await Promise.race([rollDice3D(app.els.center, dice), sleep(7000)]);
+      sfx.shake();
+      await Promise.race([rollDice3D(app.els.center, dice, { onHit: (v, kind) => sfx.diceHit(v, kind) }), sleep(7000)]);
       [...app.els.dice.children].forEach((d, k) => setDie(d, dice[k]));
       app.els.dice.classList.toggle("dbl", dice[0] === dice[1]);
       return;
@@ -320,6 +339,7 @@ async function rollDice(dice) {
       if (app.els?.dice) app.els.dice.style.visibility = "";
     }
   }
+  sfx.rattle();
   await animateDice(dice);
 }
 async function animateDice(dice) {
@@ -336,6 +356,7 @@ async function animateMove(pid, from, to, kind) {
   const tok = app.els?.tokens[pid];
   if (!tok) return;
   if (kind === "jump") {
+    sfx.whoosh();
     tok.classList.add("jump");
     app.tokenPos[pid] = to;
     layoutTokens();
@@ -350,11 +371,13 @@ async function animateMove(pid, from, to, kind) {
     p = (p + step + 40) % 40;
     app.tokenPos[pid] = p;
     tok.classList.remove("hop"); void tok.offsetWidth; tok.classList.add("hop");
+    sfx.step(guard);
     layoutTokens();
     await sleep(150);
   }
   const tileEl = app.els.tiles[to];
   tileEl.classList.remove("landed"); void tileEl.offsetWidth; tileEl.classList.add("landed");
+  sfx.land();
   await sleep(120);
 }
 function flashTile(i, color) {
@@ -664,6 +687,7 @@ function renderGame() {
   $("#app").replaceChildren(
     h("div", { class: "topbar" }, brandMark(), wordmark(), h("div", { class: "spacer" }),
       round, h("span", { class: "pill conn-pill" }, connText()),
+      soundButton(),
       h("button", { class: "iconbtn", title: "Invite", onclick: openInvite }, icon("share")),
       h("button", { class: "iconbtn", title: "Rules", onclick: openRules }, icon("book")),
       h("button", { class: "iconbtn host-only", title: "Host controls", onclick: openHostMenu, style: isHost() ? "" : "display:none" }, icon("bell")),
@@ -1035,7 +1059,7 @@ function afterUpdate() {
   const cur = G.currentId(st);
   const key = `${st.round}:${st.turn}`;
   if (cur === myId() && st.phase === "roll" && app.turnKey !== key && st.players[myId()] && !st.debts.length) {
-    if (app.turnKey) { toast("Your turn!", "turn"); try { navigator.vibrate?.(60); } catch {} }
+    if (app.turnKey) { toast("Your turn!", "turn"); sfx.chime(); try { navigator.vibrate?.(60); } catch {} }
     app.turnKey = key;
   }
   document.title = st.phase !== "over" && cur === myId() ? "Your turn · Companoly" : "Companoly";
