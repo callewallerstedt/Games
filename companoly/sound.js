@@ -5,7 +5,8 @@ let ctx = null;
 let master = null;
 let noiseBuf = null;
 let muted = (() => { try { return localStorage.getItem("cmp_muted") === "1"; } catch { return false; } })();
-const VOLUME = 0.75;
+let volume = (() => { try { const v = Number(localStorage.getItem("cmp_volume")); return Number.isFinite(v) && localStorage.getItem("cmp_volume") !== null ? v : 0.75; } catch { return 0.75; } })();
+const level = () => (muted ? 0 : volume * volume);
 
 function ac() {
   if (!ctx) {
@@ -13,7 +14,7 @@ function ac() {
     if (!C) return null;
     ctx = new C();
     master = ctx.createGain();
-    master.gain.value = muted ? 0 : VOLUME;
+    master.gain.value = level();
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14;
     comp.ratio.value = 4;
@@ -30,11 +31,19 @@ function ac() {
 // Browsers only allow audio after a user gesture.
 for (const ev of ["pointerdown", "keydown"]) window.addEventListener(ev, () => ac(), { passive: true });
 
-export const isMuted = () => muted;
+export const isMuted = () => muted || volume === 0;
 export function setMuted(m) {
   muted = !!m;
-  try { localStorage.setItem("cmp_muted", muted ? "1" : "0"); } catch {}
-  if (master) master.gain.value = muted ? 0 : VOLUME;
+  if (!muted && volume === 0) volume = 0.5;
+  try { localStorage.setItem("cmp_muted", muted ? "1" : "0"); localStorage.setItem("cmp_volume", String(volume)); } catch {}
+  if (master) master.gain.value = level();
+}
+export const getVolume = () => volume;
+export function setVolume(v) {
+  volume = Math.max(0, Math.min(1, Number(v) || 0));
+  muted = false;
+  try { localStorage.setItem("cmp_volume", String(volume)); localStorage.setItem("cmp_muted", "0"); } catch {}
+  if (master) master.gain.value = level();
 }
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -47,7 +56,7 @@ function env(g, t0, peak, attack, dur) {
 
 function burst({ t = 0, dur = 0.05, freq = 3000, q = 1, gain = 0.4, type = "bandpass", sweepTo = null, attack = 0.002 }) {
   const a = ac();
-  if (!a || muted) return;
+  if (!a || isMuted()) return;
   const t0 = a.currentTime + t;
   const src = a.createBufferSource();
   src.buffer = noiseBuf;
@@ -66,7 +75,7 @@ function burst({ t = 0, dur = 0.05, freq = 3000, q = 1, gain = 0.4, type = "band
 
 function tone({ t = 0, f = 440, f2 = null, dur = 0.2, type = "sine", gain = 0.25, attack = 0.004, lp = null }) {
   const a = ac();
-  if (!a || muted) return;
+  if (!a || isMuted()) return;
   const t0 = a.currentTime + t;
   const o = a.createOscillator();
   o.type = type;
@@ -173,6 +182,8 @@ export const sfx = {
     notes.forEach((f, k) => tone({ t: k * 0.09, f, dur: 0.18, type: "triangle", gain: 0.14 }));
   },
   sparkle() { [1568, 2093, 2637, 3136].forEach((f, k) => tone({ t: k * 0.05, f, dur: 0.25, type: "sine", gain: 0.08 })); },
+  win() { sfx.coin(true); setTimeout(() => sfx.register(), 120); setTimeout(() => sfx.sparkle(), 300); },
+  lose() { tone({ f: 330, f2: 165, dur: 0.45, type: "sawtooth", gain: 0.08, lp: 900 }); burst({ dur: 0.1, freq: 500, q: 1, gain: 0.15 }); },
   fanfare() {
     [523, 659, 784, 1047].forEach((f, k) => tone({ t: k * 0.12, f, dur: 0.3, type: "triangle", gain: 0.2 }));
     tone({ t: 0.5, f: 1047, dur: 1.1, type: "triangle", gain: 0.2 });

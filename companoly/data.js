@@ -66,7 +66,7 @@ export const TILES = [
   { kind: "deal", name: "Shady Deal" },
   P("Johnson & Johnson", "jnj.png", "pharma", 180, 180, "Gentle enough for babies. Allegedly."),
   P("Pfizer", "pfizer.png", "pharma", 200, 200, "Side effects may include profit."),
-  { kind: "haven", name: "Tax Haven", blurb: "Relax in the Caymans. Nothing happens here, unless the jackpot rule is on." },
+  { kind: "haven", name: "Casino", blurb: "The offshore casino. Bet $200M on higher or lower, or $100M on a single number for a 6x payout. Or just walk away." },
   P("Volkswagen", "vw.png", "auto", 220, 220, "Emissions tests are more of a suggestion."),
   { kind: "news", name: "Breaking News" },
   P("Ford", "ford.jpg", "auto", 220, 220, "Built Ford tough. Recalled Ford often."),
@@ -129,7 +129,7 @@ export const NEWS = [
   { title: "Opioid Lawsuit", text: "Big Pharma rents halved for 2 rounds while the lawyers argue.", fx: { type: "trend", sector: "pharma", mult: 0.5, rounds: 2 } },
   { title: "Stimulus Checks", text: "Helicopter money! Every player collects $50M.", fx: { type: "stimulus", amount: 50 } },
   { title: "Travel Boom", text: "Everyone wants to get away. Travel & Freight rents doubled for 2 rounds.", fx: { type: "trend", sector: "transport", mult: 2, rounds: 2 } },
-  { title: "Davos Summit", text: "Fly private to lecture everyone about climate change. Advance to Tax Haven.", fx: { type: "moveTo", to: 20 } },
+  { title: "Davos Summit", text: "Fly private to lecture everyone about climate change, then hit the tables. Advance to the Casino.", fx: { type: "moveTo", to: 20 } },
   { title: "Silicon Valley Roadshow", text: "Pitch deck ready. Advance to Google. Collect $200M if you pass Payday.", fx: { type: "moveTo", to: 26 } },
   { title: "Detroit Factory Tour", text: "Hard hat, photo op, leave early. Advance to Ford.", fx: { type: "moveTo", to: 23 } },
   { title: "Market Rally", text: "Momentum is on your side. Move forward 4 spaces.", fx: { type: "moveBy", n: 4 } },
@@ -175,6 +175,8 @@ export const DEALS = [
 ];
 
 export const TICKET_FEE = 150;
+export const CASINO_HILO = 200;  // higher/lower stake, even money
+export const CASINO_PICK = 100;  // pick-a-number stake, pays 6x
 
 export const DEFAULT_SETTINGS = {
   startCash: 1500,
@@ -184,7 +186,7 @@ export const DEFAULT_SETTINGS = {
   buildNeedsSet: true,   // must own the whole sector to build
   buildWhere: "any",     // "any" | "sector" (landed in it this turn) | "exact" (landed on that company)
   evenBuild: true,       // build/sell evenly across the sector
-  jackpot: false,        // taxes & fines pile up on Tax Haven
+  jackpot: false,        // taxes & fines pile up for whoever lands on the Casino
   goSalary: 200,
   claimRent: false,      // owners must claim rent before the next roll
   tickets: false,        // cash in a Travel & Freight deed to fly anywhere

@@ -3,7 +3,7 @@
 // produced (used by clients to animate) and mutates `state` in place.
 import {
   TILES, SECTORS, NEWS, DEALS, GULAG, TRANSPORT_RENT, OIL_MULT, BAIL,
-  MAX_FACTORIES, MAX_HQ, DEFAULT_SETTINGS, TICKET_FEE,
+  MAX_FACTORIES, MAX_HQ, DEFAULT_SETTINGS, TICKET_FEE, CASINO_HILO, CASINO_PICK,
 } from "./data.js";
 
 const OWNABLE = new Set(["prop", "transport", "oil"]);
@@ -163,8 +163,9 @@ export function canBuild(st, pid, i) {
   if (p.mort || (s.buildNeedsSet && peers.some((j) => st.props[j].mort))) return s.buildNeedsSet ? "Unmortgage the sector first" : "Unmortgage it first";
   if (p.level >= 5) return "Already a Megacorp HQ";
   if (s.evenBuild && p.level > Math.min(...peers.map((j) => st.props[j].level))) return "Build evenly across the sector";
-  if (s.buildWhere === "exact" && !st.landed.includes(i)) return `Land on ${t.name} to build there`;
-  if (s.buildWhere === "sector" && !st.landed.some((j) => TILES[j].sector === t.sector)) return `Land in ${SECTORS[t.sector].name} to build there`;
+  const unlocked = (st.unlocked || []).includes(t.sector);
+  if (!unlocked && s.buildWhere === "exact" && !st.landed.includes(i)) return `Land on ${t.name} to build there`;
+  if (!unlocked && s.buildWhere === "sector" && !st.landed.some((j) => TILES[j].sector === t.sector)) return `Land in ${SECTORS[t.sector].name} to build there`;
   const toHq = p.level === hqAt(st);
   if (toHq ? st.supply.hq < 1 : st.supply.factories < 1) return toHq ? "No HQs left in the market" : "Factory shortage — none left";
   if (st.players[pid].cash < buildCost(i)) return "Not enough cash";
@@ -185,6 +186,17 @@ export function canMortgage(st, pid, i) {
   if (p.mort) return "Already mortgaged";
   if (upgradesBlock(st, i)) return st.settings.buildNeedsSet ? "Sell the sector's upgrades first" : "Sell its upgrades first";
   return null;
+}
+
+// Completing a sector on your own turn lets you build anywhere in it that turn.
+function noteAcquired(st, pid, tiles) {
+  if (currentId(st) !== pid) return;
+  for (const i of tiles) {
+    const sec = TILES[i].sector;
+    if (TILES[i].kind === "prop" && hasSet(st, pid, sec)) {
+      st.unlocked = [...new Set([...(st.unlocked || []), sec])];
+    }
+  }
 }
 
 // ---------- internals ----------
@@ -291,9 +303,12 @@ function land(st, pid, ctx, mode = null) {
       if (st.settings.jackpot && st.pot > 0) {
         const pot = st.pot;
         st.pot = 0;
-        addCash(st, pid, pot, "Tax Haven jackpot");
-        log(st, `${nm(st, pid)} hits the Tax Haven jackpot: +${money(pot)}`);
+        addCash(st, pid, pot, "Casino jackpot");
+        log(st, `${nm(st, pid)} hits the Casino jackpot: +${money(pot)}`);
       }
+      // The Casino: one optional bet per visit (see "gamble").
+      st.casino = { pid };
+      log(st, `${nm(st, pid)} walks into the Casino`);
       return;
     case "news": case "deal":
       drawCard(st, pid, t.kind === "news" ? "news" : "deals", ctx);
@@ -399,16 +414,19 @@ function settle(st) {
   const pid = currentId(st);
   if (st.players[pid].bankrupt) return;
   if (st.pendingTile != null) { st.phase = "buy"; return; }
+  if (st.casino && st.casino.pid === pid) { st.phase = "casino"; return; }
   st.phase = st.extraRoll ? "roll" : "end";
 }
 
 function nextTurn(st) {
   st.card = null;
+  st.casino = null;
   st.pendingTile = null;
   st.doubles = 0;
   st.extraRoll = false;
   st.built = 0;
   st.landed = [];
+  st.unlocked = [];
   if (checkWinner(st)) return;
   const n = st.order.length;
   let i = st.turn;
@@ -536,6 +554,7 @@ function resolveAuction(st, ctx = {}) {
     const t = TILES[a.tile];
     addCash(st, a.bidder, -a.high, `Auction: ${t.name}`);
     st.props[a.tile].owner = a.bidder;
+    noteAcquired(st, a.bidder, [a.tile]);
     emit({ type: "buy", pid: a.bidder, tile: a.tile, price: a.high });
     log(st, `${nm(st, a.bidder)} wins ${t.name} for ${money(a.high)}`);
   } else if (a.estate && st.estateTo && !st.players[st.estateTo].bankrupt) {
@@ -714,6 +733,8 @@ function handle(st, pid, a, ctx) {
       if (e1) { st.trades = st.trades.filter((x) => x.id !== a.id); return `Offer no longer valid: ${e1}`; }
       swapAssets(st, t.from, t.to, t.give);
       swapAssets(st, t.to, t.from, t.get);
+      noteAcquired(st, t.to, t.give.tiles || []);
+      noteAcquired(st, t.from, t.get.tiles || []);
       st.trades = st.trades.filter((x) => x.id !== a.id && !(x.give.tiles.concat(x.get.tiles).some((i) => t.give.tiles.includes(i) || t.get.tiles.includes(i))));
       const desc = (side) => [side.cash ? money(side.cash) : null, ...side.tiles.map((i) => TILES[i].name), side.cards ? `${side.cards} Gulag card` : null].filter(Boolean).join(", ") || "nothing";
       log(st, `Trade: ${nm(st, t.from)} gives ${desc(t.give)} ⇄ ${nm(st, t.to)} gives ${desc(t.get)}`);
@@ -874,6 +895,7 @@ function handle(st, pid, a, ctx) {
       addCash(st, pid, -price, `Bought ${TILES[i].name}`);
       st.props[i].owner = pid;
       st.pendingTile = null;
+      noteAcquired(st, pid, [i]);
       emit({ type: "buy", pid, tile: i, price });
       log(st, `${pl.name} bought ${TILES[i].name} for ${money(price)}`);
       settle(st);
@@ -884,6 +906,33 @@ function handle(st, pid, a, ctx) {
       const i = st.pendingTile;
       if (st.settings.auctions && alive(st).length > 1) startAuction(st, i, ctx);
       else { st.pendingTile = null; log(st, `${pl.name} passed on ${TILES[i].name}`); settle(st); }
+      return null;
+    }
+    case "gamble": {
+      // Higher/lower: stake $200M on one die, low = 1-3, high = 4-6, win pays even money.
+      // Pick a number: stake $100M on 1-6, a hit pays 6x the stake.
+      if (st.phase !== "casino" || !st.casino) return "You're not at the Casino";
+      const hilo = a.game === "hilo";
+      const stake = hilo ? CASINO_HILO : CASINO_PICK;
+      const pick = hilo ? (a.pick === "high" ? "high" : a.pick === "low" ? "low" : null) : Math.floor(Number(a.pick));
+      if (hilo ? !pick : !(pick >= 1 && pick <= 6)) return "Pick a bet";
+      if (pl.cash < stake) return `You need ${money(stake)} to play`;
+      const die = 1 + Math.floor(ctx.rng() * 6);
+      const win = hilo ? (pick === "high" ? die >= 4 : die <= 3) : die === pick;
+      const net = win ? (hilo ? stake : stake * 5) : -stake;
+      if (win) addCash(st, pid, net, "Casino win");
+      else transfer(st, pid, toBankOrPot(st), stake, "Casino");
+      st.casino = null;
+      emit({ type: "casino", pid, game: hilo ? "hilo" : "number", pick, die, win, net });
+      log(st, `${pl.name} bets ${money(stake)} on ${hilo ? pick : `number ${pick}`}, rolls a ${die}: ${win ? `WINS ${money(net)}` : "loses"}`);
+      settle(st);
+      return null;
+    }
+    case "leaveCasino": {
+      if (st.phase !== "casino") return "You're not at the Casino";
+      st.casino = null;
+      log(st, `${pl.name} walks away from the tables`);
+      settle(st);
       return null;
     }
     case "endTurn": {

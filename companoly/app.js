@@ -1,10 +1,10 @@
 // Companoly client: lobby, board, animations, host networking.
 // The server (api/companoly.js) runs the rules engine and stores the game; every
 // browser just sends actions and polls for changes, so nobody's device is the host.
-import { TILES, SECTORS, NEWS, DEALS, COLORS, PRESETS, TRANSPORT_RENT, OIL_MULT, BAIL, TICKET_FEE } from "./data.js";
+import { TILES, SECTORS, NEWS, DEALS, COLORS, PRESETS, TRANSPORT_RENT, OIL_MULT, BAIL, TICKET_FEE, CASINO_HILO, CASINO_PICK } from "./data.js";
 import * as G from "./engine.js";
 import { rollDice3D, preloadDice } from "./dice3d.js";
-import { sfx, isMuted, setMuted } from "./sound.js";
+import { sfx, isMuted, setMuted, getVolume, setVolume } from "./sound.js";
 
 const { money } = G;
 const SHORT = { "Johnson & Johnson": "J&J", "Lockheed Martin": "Lockheed", "Purdue Pharma": "Purdue", "Virgin Galactic": "Virgin Galactic", "Philip Morris": "Philip Morris" };
@@ -44,6 +44,7 @@ const ICONS = {
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
   volumeOff: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="m22 9-6 6M16 9l6 6"/>',
+  dice: '<rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
 };
 function icon(name, cls = "i") {
@@ -53,10 +54,17 @@ function icon(name, cls = "i") {
 }
 function soundButton() {
   const btn = h("button", { class: "iconbtn", title: "Sound on/off" });
-  const paint = () => btn.replaceChildren(icon(isMuted() ? "volumeOff" : "volume"));
+  const slider = h("input", { type: "range", min: "0", max: "100", value: String(Math.round(getVolume() * 100)), class: "vol", title: "Volume", "aria-label": "Volume" });
+  const paint = () => {
+    btn.replaceChildren(icon(isMuted() ? "volumeOff" : "volume"));
+    slider.value = String(isMuted() ? 0 : Math.round(getVolume() * 100));
+    slider.style.setProperty("--p", `${slider.value}%`);
+  };
   btn.addEventListener("click", () => { setMuted(!isMuted()); paint(); if (!isMuted()) sfx.chime(); });
+  slider.addEventListener("input", () => { setVolume(Number(slider.value) / 100); paint(); });
+  slider.addEventListener("change", () => sfx.coin());
   paint();
-  return btn;
+  return h("div", { class: "volbox" }, btn, slider);
 }
 const brandMark = () => h("span", { html: '<svg class="brand-mark" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#151c26"/><rect x="10" y="10" width="44" height="44" rx="6" fill="none" stroke="#f5c451" stroke-width="5"/><rect x="22" y="22" width="20" height="20" rx="3" fill="#f5c451"/></svg>' }).firstChild;
 const wordmark = () => h("div", { class: "wordmark" }, "COMPAN", h("b", {}, "O"), "LY");
@@ -125,6 +133,19 @@ function leaveRoom() {
   closeModal();
 }
 
+// Games you've been in, newest first (the server keeps them 30 days after the last move).
+function rememberGame(code) {
+  const list = (store.get("cmp_games", []) || []).filter((g) => g.code !== code);
+  list.unshift({ code, at: Date.now() });
+  store.set("cmp_games", list.slice(0, 8));
+}
+const ago = (t) => {
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const hrs = Math.round(m / 60);
+  return hrs < 24 ? `${hrs} h ago` : `${Math.round(hrs / 24)} d ago`;
+};
 const inviteUrl = (code) => `${location.origin}${location.pathname}#/g/${code}`;
 
 // ---------- server sync ----------
@@ -229,6 +250,7 @@ async function enterRoom(code) {
   if (app.code !== code) return;
   if (!r.ok) return renderGone(r.error);
   store.set("cmp_last", { code });
+  rememberGame(code);
   setConn("connected");
   applyView(r);
   startPolling();
@@ -240,6 +262,7 @@ async function createRoom() {
   leaveRoom();
   app.code = r.code;
   store.set("cmp_last", { code: r.code });
+  rememberGame(r.code);
   applyView(r);
   startPolling();
   history.replaceState(null, "", `#/g/${r.code}`);
@@ -311,6 +334,7 @@ async function animate(events) {
     else if (e.type === "tradeOffer" && e.to === mine) sfx.alert();
     else if (e.type === "tradeClosed" && e.accepted) sfx.register();
     else if (e.type === "over") sfx.fanfare();
+    else if (e.type === "casino") await casinoRoll(e);
     else if (e.type === "gulag") { sfx.clang(); flashTile(10, "#ef4444"); await sleep(250); }
     else if (e.type === "bankrupt") { sfx.sad(); await sleep(300); }
     else if (e.type === "claimable" && e.to === myId()) { sfx.alert(); toast(`Claim your ${money(e.amount)} rent before the next roll!`, "turn"); }
@@ -321,6 +345,19 @@ function setDie(el, n) {
   const map = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
   [...el.children].forEach((pip, k) => pip.classList.toggle("on", map[n]?.includes(k)));
 }
+async function casinoRoll(e) {
+  const p = app.game.players[e.pid];
+  const bet = e.game === "hilo" ? `${e.pick === "high" ? "High" : "Low"}` : `number ${e.pick}`;
+  if (app.els?.center && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    try {
+      sfx.shake();
+      await Promise.race([rollDice3D(app.els.center, [e.die], { onHit: (v, kind) => sfx.diceHit(v, kind) }), sleep(7000)]);
+    } catch { sfx.rattle(); await sleep(600); }
+  }
+  if (e.win) sfx.win(); else sfx.lose();
+  toast(`${p?.name || "?"} bet ${bet}, rolled ${e.die}: ${e.win ? `WINS ${money(e.net)}!` : "loses"}`, e.win ? "turn" : "err");
+}
+
 // Real physics dice in the board centre; falls back to the flat dice if WebGL/CDN fails.
 async function rollDice(dice) {
   const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -445,6 +482,8 @@ function renderHome() {
   const codeIn = h("input", { class: "field", placeholder: "CODE", maxlength: "5", style: "text-transform:uppercase;letter-spacing:.2em;font-weight:700" });
   const need = () => { if (!me.name) { toast("Enter your name first", "err"); name.focus(); return false; } return true; };
   const last = store.get("cmp_last");
+  const savedGames = store.get("cmp_games", []) || [];
+  if (last?.code && !savedGames.some((g) => g.code === last.code)) savedGames.unshift({ code: last.code, at: Date.now() });
   const companies = TILES.filter((t) => t.logo);
   $("#app").replaceChildren(h("div", { class: "shell" },
     h("div", { class: "brand" }, brandMark(), wordmark(), h("div", { style: "flex:1" }),
@@ -459,7 +498,10 @@ function renderHome() {
           h("button", { class: "btn primary block", onclick: (e) => { if (!need()) return; e.currentTarget.disabled = true; createRoom().finally(() => { e.target.disabled = false; }); } }, "Create a game"),
           h("div", { class: "row" }, codeIn,
             h("button", { class: "btn", onclick: () => { const c = codeIn.value.trim().toUpperCase(); if (!c) return codeIn.focus(); if (need()) location.hash = `#/g/${c}`; } }, "Join")),
-          last?.code ? h("button", { class: "btn ghost block", onclick: () => { if (need()) location.hash = `#/g/${last.code}`; } }, `Rejoin game ${last.code}`) : null)),
+          savedGames.length ? h("div", { class: "saved" },
+            h("div", { class: "label" }, "Your saved games (kept 30 days)"),
+            savedGames.map((g) => h("button", { class: "saved-row", onclick: () => { if (need()) location.hash = `#/g/${g.code}`; } },
+              h("b", {}, g.code), h("span", {}, `last opened ${ago(g.at)}`), h("span", { class: "go" }, "Continue ›")))) : null)),
       h("div", { class: "logo-wall" }, companies.map((t, k) => { const l = logo(t); l.style.animationDelay = `${(k % 7) * -0.8}s`; l.title = t.name; return l; }))),
     h("div", { class: "features" },
       h("div", { class: "feature" }, h("b", {}, "28 real companies"), h("span", {}, "Fast food, social media, vice, big pharma, cars, big tech, space, defense, surveillance and big oil.")),
@@ -628,7 +670,7 @@ const CORNER_CLASS = { 0: "corner-br", 10: "corner-bl", 20: "corner-tl", 30: "co
 const SPECIAL = {
   go: ["arrowLeft", "Payday", "Collect $200M"],
   gulag: ["bars", "Gulag", ""],
-  haven: ["palm", "Tax Haven", "Free parking"],
+  haven: ["dice", "Casino", "Feeling lucky?"],
   toGulag: ["siren", "Go to Gulag", ""],
   news: ["news", "Breaking News"],
   deal: ["briefcase", "Shady Deal"],
@@ -669,6 +711,8 @@ function renderGame() {
   const trends = h("div", { class: "c-trends" });
   const center = h("div", { class: "center" }, h("div", { class: "c-mark" }, "COMPAN", h("b", {}, "O"), "LY"), dice, dyn, trends);
   board.append(center);
+  const owners = h("div", { class: "owners" });
+  board.append(owners);
   const tokLayer = h("div", { class: "tokens" });
   const tokens = {};
   for (const p of Object.values(st.players)) {
@@ -682,7 +726,7 @@ function renderGame() {
   const market = h("div", {});
   const log = h("div", { class: "log" });
   const round = h("span", { class: "pill" });
-  app.els = { board, tiles, dice, dyn, trends, center, tokens, players, port, trades, market, log, round };
+  app.els = { board, tiles, dice, dyn, trends, center, tokens, players, port, trades, market, log, round, owners };
 
   $("#app").replaceChildren(
     h("div", { class: "topbar" }, brandMark(), wordmark(), h("div", { class: "spacer" }),
@@ -712,7 +756,32 @@ function renderGame() {
 }
 
 let resizeRaf = 0;
-window.addEventListener("resize", () => { cancelAnimationFrame(resizeRaf); resizeRaf = requestAnimationFrame(layoutTokens); });
+window.addEventListener("resize", () => { cancelAnimationFrame(resizeRaf); resizeRaf = requestAnimationFrame(() => { layoutTokens(); layoutOwners(); }); });
+
+// Coloured flags on the outer edge of every owned company, so ownership reads at a glance.
+function layoutOwners() {
+  const els = app.els, st = app.view;
+  if (!els?.owners || !st) return;
+  const T = Math.max(7, Math.round(els.board.offsetWidth * 0.011));
+  const flags = [];
+  for (const t of TILES) {
+    const p = st.props[t.i];
+    if (!p?.owner) continue;
+    const owner = st.players[p.owner];
+    const el = els.tiles[t.i];
+    const side = sideOf(t.i);
+    const x = el.offsetLeft, y = el.offsetTop, w = el.offsetWidth, hh = el.offsetHeight;
+    const g = 3;
+    const box = side === "b" ? [x, y + hh + g, w, T] : side === "t" ? [x, y - g - T, w, T]
+      : side === "l" ? [x - g - T, y, T, hh] : [x + w + g, y, T, hh];
+    flags.push(h("div", {
+      class: `oflag${p.mort ? " mort" : ""}`,
+      title: `${t.name}: ${owner.name}${p.mort ? " (mortgaged)" : ""}`,
+      style: `left:${box[0]}px;top:${box[1]}px;width:${box[2]}px;height:${box[3]}px;--own:${owner.color}`,
+    }));
+  }
+  els.owners.replaceChildren(...flags);
+}
 
 function layoutTokens() {
   const els = app.els;
@@ -748,6 +817,7 @@ function layoutTokens() {
 
 function updateGame() {
   if (!app.els || !app.view) return;
+  requestAnimationFrame(layoutOwners);
   document.querySelectorAll(".host-only").forEach((el) => { el.style.display = isHost() ? "" : "none"; });
   app.els.board.classList.toggle("picking", !!app.pick);
   updateTiles();
@@ -873,6 +943,20 @@ function renderCenter() {
               onclick: () => { app.pick = { tile: tickets[0] }; updateGame(); } }, `Fly (${money(TICKET_FEE)})`) : null));
       }
     } else kids.push(status(whoEl(curP, `${curP.name}'s turn`), curP.inGulag ? "Stuck in the Gulag" : app.online[cur] === false ? "Offline…" : "Rolling…"));
+  } else if (st.phase === "casino") {
+    if (mine) {
+      kids.push(h("div", { class: "casino" },
+        h("div", { class: "casino-h" }, icon("dice"), "Casino"),
+        h("div", { class: "casino-game" },
+          h("div", { class: "cg-t" }, `Higher or lower · bet ${money(CASINO_HILO)}, win ${money(CASINO_HILO)}`),
+          h("div", { class: "row" },
+            h("button", { class: "btn", disabled: meP.cash < CASINO_HILO || null, onclick: () => send({ type: "gamble", game: "hilo", pick: "low" }) }, "Low (1-3)"),
+            h("button", { class: "btn", disabled: meP.cash < CASINO_HILO || null, onclick: () => send({ type: "gamble", game: "hilo", pick: "high" }) }, "High (4-6)"))),
+        h("div", { class: "casino-game" },
+          h("div", { class: "cg-t" }, `Pick a number · bet ${money(CASINO_PICK)}, hit pays ${money(CASINO_PICK * 6)}`),
+          h("div", { class: "nums" }, [1, 2, 3, 4, 5, 6].map((n) => h("button", { class: "btn num", disabled: meP.cash < CASINO_PICK || null, onclick: () => send({ type: "gamble", game: "number", pick: n }) }, String(n))))),
+        h("button", { class: "btn ghost sm", onclick: () => send({ type: "leaveCasino" }) }, "Walk away")));
+    } else kids.push(status(whoEl(curP, `${curP.name} is at the Casino`), "Placing a bet…"));
   } else if (st.phase === "end") {
     if (mine) {
       const s = st.settings;
@@ -994,6 +1078,20 @@ function renderPortfolio() {
   }));
 }
 
+// "You get" / "You give" from the viewer's point of view.
+function tradeBlock(st, t) {
+  const me = myId();
+  const involved = t.from === me || t.to === me;
+  const fromP = st.players[t.from], toP = st.players[t.to];
+  const getsTitle = (p) => (p.id === me ? "You get" : `${p.name} gets`);
+  return h("div", { class: "tsplit" },
+    h("div", { class: `tside ${involved ? (t.to === me ? "plus" : "minus") : ""}` },
+      h("div", { class: "tside-h" }, pawn(toP), getsTitle(toP)), sideDesc(st, t.give)),
+    h("div", { class: "tarrow" }, icon("swap")),
+    h("div", { class: `tside ${involved ? (t.from === me ? "plus" : "minus") : ""}` },
+      h("div", { class: "tside-h" }, pawn(fromP), getsTitle(fromP)), sideDesc(st, t.get)));
+}
+
 function sideDesc(st, side) {
   const parts = [];
   if (side.cash) parts.push(h("span", { class: "chip on", style: "padding-left:9px" }, money(side.cash)));
@@ -1012,10 +1110,8 @@ function renderTrades() {
       const incoming = t.to === myId();
       const other = st.players[incoming ? t.from : t.to];
       return h("div", { class: "trade-item" },
-        h("div", { class: "row" }, pawn(other), h("b", {}, incoming ? `${other.name} offers you` : `You offered ${other.name}`)),
-        sideDesc(st, incoming ? t.give : t.give),
-        h("div", { class: "tl" }, incoming ? "for your" : "for their"),
-        sideDesc(st, t.get),
+        h("div", { class: "row" }, pawn(other), h("b", {}, incoming ? `Offer from ${other.name}` : `Your offer to ${other.name}`)),
+        tradeBlock(st, t),
         h("div", { class: "row" }, incoming
           ? [h("button", { class: "btn xs good", onclick: () => send({ type: "acceptTrade", id: t.id }) }, "Accept"),
             h("button", { class: "btn xs", onclick: () => openTrade(t.from, { give: t.get, get: t.give, replaces: t.id }) }, "Counter"),
@@ -1143,7 +1239,7 @@ function openTile(i, refresh = false) {
       deal: "Draw a yellow Shady Deal card: bribes, bonuses, lawsuits and lucky breaks.",
       tax: `Pay ${money(t.amount || 0)} to the ${st?.settings.jackpot ? "Tax Haven jackpot" : "bank"}.`,
       gulag: `Just visiting, unless you were sent here. To get out: roll doubles, bribe the guards ${money(BAIL)}, or use a pass. After 3 failed tries you pay and walk.`,
-      haven: st?.settings.jackpot ? `Collect the jackpot: ${money(st.pot)} right now.` : "Nothing happens. Enjoy the beach.",
+      haven: `Optional bets: higher or lower for ${money(CASINO_HILO)} (even money), or pick a number for ${money(CASINO_PICK)} (a hit pays ${money(CASINO_PICK * 6)}).${st?.settings.jackpot ? ` Jackpot right now: ${money(st.pot)}.` : ""}`,
       toGulag: "Go directly to the Gulag. Do not pass Payday.",
     }[t.kind];
     body.push(h("p", { style: "color:var(--soft);line-height:1.55;margin:0" }, t.blurb || "", t.blurb ? h("br") : null, desc));
@@ -1156,9 +1252,8 @@ function openIncoming(id) {
   const t = st.trades.find((x) => x.id === id);
   if (!t) return;
   const from = st.players[t.from];
-  modal(`Offer from ${from.name}`, h("div", { class: "stack" },
-    h("div", {}, h("div", { class: "label" }, `${from.name} gives you`), sideDesc(st, t.give)),
-    h("div", {}, h("div", { class: "label" }, "You give"), sideDesc(st, t.get)),
+  modal(`Trade offer from ${from.name}`, h("div", { class: "stack" },
+    tradeBlock(st, t),
     h("div", { class: "row", style: "flex-wrap:wrap" },
       h("button", { class: "btn good", onclick: () => { send({ type: "acceptTrade", id }); closeModal(); } }, "Accept"),
       h("button", { class: "btn", onclick: () => openTrade(t.from, { give: t.get, get: t.give, replaces: id }) }, "Counter"),
@@ -1203,7 +1298,7 @@ function openTrade(withId = null, preset = {}) {
     body.replaceChildren(
       h("div", { class: "row", style: "flex-wrap:wrap;margin-bottom:14px" }, h("span", { class: "label", style: "margin:0" }, "Trade with"),
         others.map((id) => h("button", { class: `btn sm ${id === draft.to ? "primary" : "ghost"}`, onclick: () => { if (draft.to !== id) { draft.to = id; draft.get = { tiles: new Set(), cash: 0, cards: 0 }; draw(); } } }, pawn(st.players[id]), st.players[id].name))),
-      h("div", { class: "trade-cols" }, col("You give", meP, draft.give), col(`${them.name} gives`, them, draft.get)),
+      h("div", { class: "trade-cols" }, col(`You give ${them.name}`, meP, draft.give), col(`You get from ${them.name}`, them, draft.get)),
       h("div", { class: "row", style: "margin-top:16px" },
         h("button", { class: "btn primary", onclick: () => {
           const pack = (s) => ({ tiles: [...s.tiles], cash: s.cash || 0, cards: s.cards || 0 });

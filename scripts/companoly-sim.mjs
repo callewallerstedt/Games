@@ -76,6 +76,7 @@ function decide(st, pid, rng) {
     }
     return { type: "roll" };
   }
+  if (st.phase === "casino") return { type: "leaveCasino" };
   if (st.phase === "buy") {
     const i = st.pendingTile;
     const v = tileValue(st, pid, i);

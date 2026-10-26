@@ -11,7 +11,7 @@ import { DEFAULT_SETTINGS, COLORS, PRESETS } from "../companoly/data.js";
 
 const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
 const REDIS_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
-const TTL = 60 * 60 * 24 * 5;   // rooms live 5 days after the last change
+const TTL = 60 * 60 * 24 * 30;  // games are kept 30 days after the last move
 const ONLINE_MS = 16000;        // a player is online if they polled within this window
 const MAX_PLAYERS = 6;
 const CODE_ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
